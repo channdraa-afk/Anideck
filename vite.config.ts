@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import type { AnimeEntry, EpisodeFile, LiveMpvState } from './src/types/anime';
 
 const ROOT_DIR = process.cwd();
 const ANIME_DIR = path.join(ROOT_DIR, 'anime');
@@ -15,64 +16,6 @@ const DOCS_FILE = path.join(ROOT_DIR, 'DOKUMENTASI.md');
 const MPV_WINGET_PATH =
   'C:\\Users\\chand\\AppData\\Local\\Microsoft\\WinGet\\Packages\\mpv-player.mpv-CI.MSVC_Microsoft.Winget.Source_8wekyb3d8bbwe\\mpv.exe';
 const IPC_PIPE = '\\\\.\\pipe\\anideck-mpv-ipc';
-
-export interface EpisodeFile {
-  id: string;
-  part: string;
-  episodeNum: number;
-  episodeLabel: string;
-  fileName: string;
-  fullPath: string;
-  sizeMB: number;
-}
-
-export interface EpisodeProgress {
-  seconds: number;
-  duration: number;
-  updatedAt: string;
-}
-
-export interface AnimeEntry {
-  id: string;
-  title: string;
-  aliases: string[];
-  status: 'watching' | 'completed' | 'plan' | 'on_hold';
-  currentEpisode: number;
-  currentEpisodeLabel: string;
-  currentSeconds: number;
-  durationSeconds: number;
-  totalEpisodes: number;
-  folderName?: string;
-  malId?: number;
-  posterUrl?: string;
-  score?: number;
-  personalRating?: number;
-  studio?: string;
-  genres?: string[];
-  year?: number;
-  startedAt?: string;
-  completedAt?: string;
-  archivedAt?: string;
-  notes?: string;
-  watchedEpisodes: string[];
-  episodeProgress: Record<string, { seconds: number; duration: number }>;
-  bookmarks?: {
-    id: string;
-    episodeLabel: string;
-    seconds: number;
-    label: string;
-    createdAt: string;
-  }[];
-}
-
-interface LiveMpvState {
-  active: boolean;
-  animeId: string | null;
-  episodeLabel: string | null;
-  fileName: string | null;
-  seconds: number;
-  duration: number;
-}
 
 let liveMpv: LiveMpvState = {
   active: false,
@@ -400,6 +343,21 @@ function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[]
     return a.episodeNum - b.episodeNum;
   });
 
+  // Disambiguate colliding episode labels across multi-part folders (e.g. if Part 2 restarts at 01)
+  const labelCounts = new Map<string, number>();
+  for (const ep of results) {
+    labelCounts.set(ep.episodeLabel, (labelCounts.get(ep.episodeLabel) || 0) + 1);
+  }
+  const hasCollision = [...labelCounts.values()].some((count) => count > 1);
+  if (hasCollision) {
+    for (const ep of results) {
+      if (ep.part !== 'Main' && (labelCounts.get(ep.episodeLabel) || 0) > 1) {
+        const shortPart = ep.part.replace(/part\s*/i, 'P').replace(/\s+/g, '');
+        ep.episodeLabel = `${shortPart}-${ep.episodeLabel}`;
+      }
+    }
+  }
+
   folderScanCache.set(folderName, results);
   return results;
 }
@@ -549,44 +507,6 @@ function anideckLocalApi(): Plugin {
           }
           res.statusCode = 404;
           res.end('Poster not found');
-          return;
-        }
-
-        // GET /api/cached-poster?id=<mal_id>&url=<remote_url> -> Auto-cache recommendation & catalog posters to local SSD!
-        if (req.url.startsWith('/api/cached-poster') && req.method === 'GET') {
-          ensureDirectories();
-          const u = new URL(req.url, 'http://localhost:5177');
-          const id = (u.searchParams.get('id') || '0').replace(/[^a-z0-9-_]/gi, '_');
-          const remoteUrl = u.searchParams.get('url') || '';
-          const safeName = `mal_${id}.jpg`;
-          const filePath = path.join(POSTERS_DIR, safeName);
-
-          if (fs.existsSync(filePath) && fs.statSync(filePath).size > 500) {
-            res.setHeader('Content-Type', 'image/jpeg');
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            fs.createReadStream(filePath).pipe(res);
-            return;
-          }
-
-          if (remoteUrl && /^https?:\/\//i.test(remoteUrl)) {
-            try {
-              const r = await fetch(remoteUrl);
-              if (r.ok) {
-                const buf = Buffer.from(await r.arrayBuffer());
-                if (buf.length > 500) {
-                  await fs.promises.writeFile(filePath, buf);
-                  res.setHeader('Content-Type', 'image/jpeg');
-                  res.setHeader('Cache-Control', 'public, max-age=31536000');
-                  res.end(buf);
-                  return;
-                }
-              }
-            } catch {
-              // Offline fallback
-            }
-          }
-          res.statusCode = 404;
-          res.end('Offline poster not cached yet');
           return;
         }
 
@@ -806,7 +726,24 @@ function anideckLocalApi(): Plugin {
         if (req.url === '/api/delete-anime' && req.method === 'POST') {
           const { id } = await readBody();
           const state = loadState();
+          const target = state.animes.find((a) => a.id === id);
           state.animes = state.animes.filter((a) => a.id !== id);
+          if (target?.posterUrl?.startsWith('/api/poster/')) {
+            const stillUsed = state.animes.some((a) => a.posterUrl === target.posterUrl);
+            if (!stillUsed) {
+              const posterName = path.basename(
+                decodeURIComponent(target.posterUrl.replace('/api/poster/', '').split('?')[0])
+              );
+              const posterPath = path.join(POSTERS_DIR, posterName);
+              if (fs.existsSync(posterPath)) {
+                try {
+                  fs.unlinkSync(posterPath);
+                } catch {
+                  // Ignore unlink errors
+                }
+              }
+            }
+          }
           saveState(state);
           res.end(JSON.stringify({ ok: true }));
           return;

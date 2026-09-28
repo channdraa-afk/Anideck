@@ -7,8 +7,11 @@ export default {
         nunito: ['Nunito', 'sans-serif'],
       },
       colors: {
-        cream: '#FFFDF8',
-        espresso: '#1E293B',
+        charcoal: '#181A18',
+        slate: '#242724',
+        matcha: '#8FA882',
+        sage: '#757D6F',
+        parchment: '#EEEAD7',
       },
     },
   },

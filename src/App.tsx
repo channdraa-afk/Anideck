@@ -817,10 +817,7 @@ export function App() {
     setJikanResults([]);
   };
 
-  const handleAddFromJikan = async (
-    item: JikanAnimeItem,
-    overrideStatus?: 'watching' | 'completed' | 'plan'
-  ) => {
+  const handleAddFromJikan = async (item: JikanAnimeItem) => {
     if (rematchingAnime) {
       await handleRematchPosterFromJikan(item);
       return;
@@ -834,37 +831,36 @@ export function App() {
       return;
     }
 
-    const targetStatus = overrideStatus || newStatus;
     const totalEps = item.episodes || 12;
-    const epLabel = String(targetStatus === 'completed' ? totalEps : newEp).padStart(2, '0');
+    const epLabel = String(newStatus === 'completed' ? totalEps : newEp).padStart(2, '0');
     const entry: AnimeEntry = {
       id: `${item.mal_id}-${canonicalTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       title: canonicalTitle,
       aliases: Array.from(new Set([item.title, ...(item.title_synonyms || [])])).slice(0, 4),
-      status: targetStatus,
-      currentEpisode: targetStatus === 'completed' ? totalEps : newEp,
+      status: newStatus,
+      currentEpisode: newStatus === 'completed' ? totalEps : newEp,
       currentEpisodeLabel: epLabel,
-      currentSeconds: targetStatus === 'watching' ? newMin * 60 : 0,
+      currentSeconds: newStatus === 'watching' ? newMin * 60 : 0,
       durationSeconds: 1420,
       totalEpisodes: totalEps,
       malId: item.mal_id,
       posterUrl: item.images?.jpg?.large_image_url || item.images?.jpg?.image_url,
       score: item.score,
       year: item.year,
-      personalRating: targetStatus === 'completed' ? newRating : undefined,
+      personalRating: newStatus === 'completed' ? newRating : undefined,
       studio: item.studios?.[0]?.name,
       genres: item.genres?.map((g) => g.name).slice(0, 4),
       startedAt: new Date().toISOString().slice(0, 10),
-      completedAt: targetStatus === 'completed' ? new Date().toISOString().slice(0, 10) : undefined,
+      completedAt: newStatus === 'completed' ? new Date().toISOString().slice(0, 10) : undefined,
       notes: newNotes,
       watchedEpisodes:
-        targetStatus === 'completed'
+        newStatus === 'completed'
           ? Array.from({ length: totalEps }, (_, i) => String(i + 1).padStart(2, '0'))
           : [],
       episodeProgress: {},
     };
 
-    await saveAnimeUpdate(entry, Boolean(overrideStatus));
+    await saveAnimeUpdate(entry);
     setShowAddModal(false);
     setSearchQuery('');
     setJikanResults([]);
@@ -1932,13 +1928,15 @@ export function App() {
                       <div
                         ref={scrubberRef}
                         onClick={handleScrubberClick}
-                        className="group relative w-full h-3 rounded-full bg-[#121412] border border-[#757D6F]/30 cursor-pointer overflow-hidden flex items-center"
+                        className="group relative w-full h-3 rounded-full bg-[#121412] border border-[#757D6F]/30 cursor-pointer flex items-center"
                         title="Click anywhere on the timeline to jump to that minute"
                       >
                         <div
-                          className="animate-bar-fill h-full bg-[#8FA882] rounded-full"
+                          className="relative h-full bg-[#8FA882] rounded-full flex items-center justify-end"
                           style={{ width: `${Math.max(3, progressPct)}%` }}
-                        />
+                        >
+                          <span className="w-3.5 h-3.5 rounded-full bg-[#EEEAD7] border-2 border-[#181A18] shadow-md transition-transform duration-150 group-hover:scale-125 translate-x-1.5" />
+                        </div>
                       </div>
                       <div className="flex items-center justify-between text-[11px] font-extrabold text-[#EEEAD7]/70">
                         <button
@@ -2160,9 +2158,16 @@ export function App() {
                             </button>
 
                             <div className="min-w-0">
-                              <span className="text-sm font-black block text-[#EEEAD7]">
-                                Episode {file.episodeLabel}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-black text-[#EEEAD7]">
+                                  Episode {file.episodeLabel}
+                                </span>
+                                {file.part !== 'Main' && (
+                                  <span className="px-1.5 py-0.2 rounded bg-[#242724] border border-[#757D6F]/35 text-[10px] font-extrabold text-[#8FA882]">
+                                    {file.part}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-[11px] font-bold truncate text-[#EEEAD7]/70">
                                 {file.sizeMB} MB •{' '}
                                 {savedSec > 5
