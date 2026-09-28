@@ -992,7 +992,7 @@ export function App() {
   }, [selectedAnime]);
 
   return (
-    <div className="min-h-screen bg-[#2D0000] text-[#EEEAD7] pb-24 selection:bg-[#6D0808] selection:text-[#EEEAD7]">
+    <div className="min-h-screen bg-[#181A18] text-[#EEEAD7] pb-24 selection:bg-[#8FA882] selection:text-[#181A18]">
       {/* Hidden File Input for Portable JSON Backup Restore */}
       <input
         ref={fileImportRef}
@@ -1004,14 +1004,14 @@ export function App() {
 
       {/* Spring-Animated Toast Notification */}
       {toast && (
-        <div className="animate-modal-pop fixed bottom-6 right-6 z-50 bg-[#EEEAD7] text-[#2D0000] px-5 py-3.5 rounded-2xl border-2 border-[#6D0808] shadow-[0_16px_40px_rgba(0,0,0,0.55)] flex items-center gap-3 font-extrabold text-xs sm:text-sm">
-          <Sparkles className="w-4 h-4 text-[#6D0808] shrink-0" />
+        <div className="animate-modal-pop fixed bottom-6 right-6 z-50 bg-[#EEEAD7] text-[#181A18] px-5 py-3.5 rounded-2xl border-2 border-[#8FA882] shadow-[0_16px_40px_rgba(0,0,0,0.55)] flex items-center gap-3 font-extrabold text-xs sm:text-sm">
+          <Sparkles className="w-4 h-4 text-[#4E6144] shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* GRAND VELVET CINEMA HEADER */}
-      <header className="sticky top-0 z-30 bg-[#2D0000]/90 backdrop-blur-md border-b border-[#757D6F]/25">
+      {/* KYOTO MATCHA & WARM CHARCOAL HEADER */}
+      <header className="sticky top-0 z-30 bg-[#181A18]/90 backdrop-blur-md border-b border-[#757D6F]/25">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <button
@@ -1040,7 +1040,7 @@ export function App() {
                 size="sm"
                 onClick={() => setSelectedId(null)}
               >
-                <ArrowLeft className="w-3.5 h-3.5 text-[#6D0808]" />
+                <ArrowLeft className="w-3.5 h-3.5 text-[#181A18]" />
                 <span>Library</span>
               </TactileButton>
             )}
@@ -1048,8 +1048,8 @@ export function App() {
 
           {/* LIVE MPV REMOTE CONTROL PILL */}
           {liveMpv.active && (
-            <div className="animate-modal-pop flex flex-wrap items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-[#1E0000] text-[#EEEAD7] border border-[#757D6F]/40 shadow-lg">
-              <span className="w-2 h-2 rounded-full bg-[#757D6F] animate-ping" />
+            <div className="animate-modal-pop flex flex-wrap items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-[#242724] text-[#EEEAD7] border border-[#8FA882]/40 shadow-lg">
+              <span className="w-2 h-2 rounded-full bg-[#8FA882] animate-ping" />
               <span className="text-xs font-black tracking-wide tabular-nums mr-1">
                 MPV • Ep {liveMpv.episodeLabel} • {formatTime(liveMpv.seconds)}
               </span>
@@ -1073,7 +1073,7 @@ export function App() {
                   onClick={() =>
                     handleSendMpvCommand(['seek', 85, 'relative'], 'Skipped Opening (+85s)')
                   }
-                  className="px-2 py-0.5 rounded-lg bg-[#6D0808] hover:bg-[#820A0A] text-[#EEEAD7] text-[10px] font-black cursor-pointer flex items-center gap-1"
+                  className="px-2 py-0.5 rounded-lg bg-[#8FA882] hover:bg-[#9DB590] text-[#181A18] text-[10px] font-black cursor-pointer flex items-center gap-1"
                   title="Skip Opening (+85s)"
                 >
                   <FastForward className="w-3 h-3" />
@@ -1091,7 +1091,7 @@ export function App() {
               onClick={() => handleOpenExplorer()}
               title="Open local anime/ folder in Windows Explorer"
             >
-              <FolderOpen className="w-3.5 h-3.5 text-[#EEEAD7]" />
+              <FolderOpen className="w-3.5 h-3.5 text-[#8FA882]" />
               <span className="hidden sm:inline">Folder</span>
             </TactileButton>
 
@@ -1121,21 +1121,21 @@ export function App() {
       </header>
 
       {/* =====================================================================
-          SCREEN 1: GRAND VELVET CINEMA HOME LIBRARY (#2D0000 · #6D0808 · #757D6F · #EEEAD7)
+          SCREEN 1: KYOTO MATCHA & WARM CHARCOAL LIBRARY (#181A18 · #242724 · #8FA882 · #EEEAD7)
          ===================================================================== */}
       {!selectedAnime ? (
         <main
           key="home-screen"
           className="animate-page-enter max-w-6xl mx-auto px-4 sm:px-6 pt-7 space-y-9"
         >
-          {/* 1. VELVET CRIMSON & OXBLOOD SPOTLIGHT STAGE ("NOW WATCHING") */}
+          {/* 1. STUDIO SLATE SPOTLIGHT STAGE ("NOW WATCHING") */}
           {heroAnime && (
-            <section className="rounded-3xl bg-gradient-to-br from-[#450505] via-[#340202] to-[#1E0000] text-[#EEEAD7] border border-[#757D6F]/35 shadow-[0_24px_60px_-15px_rgba(0,0,0,0.65)] p-6 sm:p-8">
+            <section className="rounded-3xl bg-gradient-to-br from-[#282C28] via-[#222522] to-[#1A1C1A] text-[#EEEAD7] border border-[#757D6F]/35 shadow-[0_24px_60px_-15px_rgba(0,0,0,0.55)] p-6 sm:p-8">
               <div className="flex flex-col md:flex-row items-center gap-6 sm:gap-8">
                 {/* 2:3 Poster Frame */}
                 <div
                   onClick={() => setSelectedId(heroAnime.id)}
-                  className="poster-card-spring relative w-36 sm:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-[#1E0000] ring-2 ring-[#EEEAD7]/20 shadow-2xl shrink-0 cursor-pointer group"
+                  className="poster-card-spring relative w-36 sm:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-[#121412] ring-2 ring-[#EEEAD7]/20 shadow-2xl shrink-0 cursor-pointer group"
                 >
                   {heroAnime.posterUrl ? (
                     <img
@@ -1153,27 +1153,27 @@ export function App() {
                 {/* Spotlight Copy & Progress */}
                 <div className="flex-1 min-w-0 space-y-4 text-center md:text-left">
                   <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6D0808] text-[#EEEAD7] border border-[#EEEAD7]/20 text-[11px] font-black uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#EEEAD7]" />
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#8FA882] text-[#181A18] text-[11px] font-black uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#181A18]" />
                       {heroAnime.status === 'watching' ? 'Now Watching' : 'Featured Series'}
                     </span>
 
                     {heroAnime.score && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEEAD7] text-[#2D0000] text-[11px] font-black tabular-nums">
-                        <Star className="w-3 h-3 fill-[#6D0808] text-[#6D0808]" />
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEEAD7] text-[#181A18] text-[11px] font-black tabular-nums">
+                        <Star className="w-3 h-3 fill-[#181A18] text-[#181A18]" />
                         {heroAnime.score}
                       </span>
                     )}
 
                     {heroAnime.studio && (
-                      <span className="px-2.5 py-1 rounded-full bg-[#220000] border border-[#757D6F]/35 text-[#EEEAD7]/85 text-[11px] font-bold">
+                      <span className="px-2.5 py-1 rounded-full bg-[#181A18] border border-[#757D6F]/35 text-[#EEEAD7]/85 text-[11px] font-bold">
                         {heroAnime.studio}
                       </span>
                     )}
 
                     {heroAnime.hasLocalFiles && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#757D6F] text-[#EEEAD7] text-[11px] font-extrabold tabular-nums">
-                        <HardDrive className="w-3 h-3" />
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#757D6F]/30 border border-[#8FA882]/40 text-[#EEEAD7] text-[11px] font-extrabold tabular-nums">
+                        <HardDrive className="w-3 h-3 text-[#8FA882]" />
                         {heroAnime.localFiles?.length} Episodes •{' '}
                         {formatDiskSize(heroAnime.totalDiskMB)}
                       </span>
@@ -1200,14 +1200,14 @@ export function App() {
                           of {heroAnime.totalEpisodes || '?'}
                         </span>
                       </span>
-                      <span className="text-[#EEEAD7] bg-[#220000] px-2 py-0.5 rounded-md border border-[#757D6F]/30">
+                      <span className="text-[#8FA882] bg-[#181A18] px-2 py-0.5 rounded-md border border-[#757D6F]/30">
                         {formatTime(heroAnime.currentSeconds)} /{' '}
                         {formatTime(heroAnime.durationSeconds || 1420)}
                       </span>
                     </div>
-                    <div className="w-full h-2.5 rounded-full bg-[#180000] border border-[#757D6F]/25 overflow-hidden">
+                    <div className="w-full h-2.5 rounded-full bg-[#121412] border border-[#757D6F]/25 overflow-hidden">
                       <div
-                        className="animate-bar-fill h-full bg-[#EEEAD7] rounded-full"
+                        className="animate-bar-fill h-full bg-[#8FA882] rounded-full"
                         style={{
                           width: `${Math.min(
                             100,
@@ -1235,15 +1235,15 @@ export function App() {
                             return (
                               <>
                                 <TactileButton
-                                  variant="white"
+                                  variant="amber"
                                   size="md"
                                   onClick={() => handlePlayMpv(heroAnime, smartNext.file, 0)}
                                 >
-                                  <Play className="w-4 h-4 fill-current text-[#6D0808]" />
+                                  <Play className="w-4 h-4 fill-current" />
                                   <span>Play Next: Ep {smartNext.episodeLabel}</span>
                                 </TactileButton>
                                 <TactileButton
-                                  variant="amber"
+                                  variant="white"
                                   size="md"
                                   onClick={() => handlePlayMpv(heroAnime)}
                                 >
@@ -1257,11 +1257,11 @@ export function App() {
                           }
                           return (
                             <TactileButton
-                              variant="white"
+                              variant="amber"
                               size="md"
                               onClick={() => handlePlayMpv(heroAnime)}
                             >
-                              <Play className="w-4 h-4 fill-current text-[#6D0808]" />
+                              <Play className="w-4 h-4 fill-current" />
                               <span>
                                 Resume Ep {heroAnime.currentEpisodeLabel} •{' '}
                                 {formatTime(heroAnime.currentSeconds)}
@@ -1282,7 +1282,7 @@ export function App() {
                     )}
 
                     <TactileButton
-                      variant="slate"
+                      variant="white"
                       size="md"
                       onClick={() => setSelectedId(heroAnime.id)}
                     >
@@ -1305,7 +1305,7 @@ export function App() {
           )}
 
           {/* 2. MINIMALIST SUMMARY BAR */}
-          <section className="flex flex-wrap items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-[#220000] border border-[#757D6F]/30 shadow-md">
+          <section className="flex flex-wrap items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-[#242724] border border-[#757D6F]/30 shadow-md">
             <div className="flex flex-wrap items-center gap-6 text-xs font-extrabold">
               <div className="flex items-center gap-2">
                 <span className="text-[#EEEAD7]/60">Watch Time:</span>
@@ -1321,7 +1321,7 @@ export function App() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[#EEEAD7]/60">Local Disk:</span>
-                <span className="px-2 py-0.5 rounded-md bg-[#757D6F] text-[#EEEAD7] font-black tabular-nums">
+                <span className="px-2 py-0.5 rounded-md bg-[#8FA882]/20 text-[#8FA882] font-black tabular-nums">
                   {formatDiskSize(collectorStats.totalDiskMB)} ({collectorStats.totalFiles} mkv)
                 </span>
               </div>
@@ -1330,16 +1330,16 @@ export function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleExportBackup}
-                className="px-3 py-1.5 rounded-xl bg-[#380303] hover:bg-[#6D0808] border border-[#757D6F]/30 text-xs font-extrabold text-[#EEEAD7] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
+                className="px-3 py-1.5 rounded-xl bg-[#181A18] hover:bg-[#2F332F] border border-[#757D6F]/30 text-xs font-extrabold text-[#EEEAD7] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
               >
-                <Download className="w-3.5 h-3.5 text-[#EEEAD7]" />
+                <Download className="w-3.5 h-3.5 text-[#8FA882]" />
                 <span>Backup</span>
               </button>
               <button
                 onClick={() => fileImportRef.current?.click()}
-                className="px-3 py-1.5 rounded-xl bg-[#380303] hover:bg-[#757D6F] border border-[#757D6F]/30 text-xs font-extrabold text-[#EEEAD7] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
+                className="px-3 py-1.5 rounded-xl bg-[#181A18] hover:bg-[#2F332F] border border-[#757D6F]/30 text-xs font-extrabold text-[#EEEAD7] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
               >
-                <Upload className="w-3.5 h-3.5 text-[#EEEAD7]" />
+                <Upload className="w-3.5 h-3.5 text-[#8FA882]" />
                 <span>Restore</span>
               </button>
             </div>
@@ -1349,7 +1349,7 @@ export function App() {
           <section className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               {/* Clean Segmented Tabs */}
-              <div className="inline-flex flex-wrap items-center gap-1 p-1.5 rounded-2xl bg-[#1E0000] border border-[#757D6F]/30">
+              <div className="inline-flex flex-wrap items-center gap-1 p-1.5 rounded-2xl bg-[#242724] border border-[#757D6F]/30">
                 {(
                   [
                     { id: 'all', label: 'All', count: tabCounts.all },
@@ -1369,7 +1369,7 @@ export function App() {
                       }}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-2 cursor-pointer active:scale-95 ${
                         active
-                          ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                          ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                           : 'text-[#EEEAD7]/70 hover:text-[#EEEAD7]'
                       }`}
                     >
@@ -1377,8 +1377,8 @@ export function App() {
                       <span
                         className={`px-1.5 py-0.2 rounded-md text-[10px] font-black tabular-nums ${
                           active
-                            ? 'bg-[#6D0808] text-[#EEEAD7]'
-                            : 'bg-[#380303] text-[#EEEAD7]/70'
+                            ? 'bg-[#181A18] text-[#EEEAD7]'
+                            : 'bg-[#181A18] text-[#EEEAD7]/70'
                         }`}
                       >
                         {tab.count}
@@ -1398,11 +1398,11 @@ export function App() {
                     value={catalogSearch}
                     onChange={(e) => setCatalogSearch(e.target.value)}
                     placeholder="Filter library... (/)"
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[#1E0000] border border-[#757D6F]/35 text-xs font-bold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#EEEAD7]"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/35 text-xs font-bold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#8FA882]"
                   />
                 </div>
 
-                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#1E0000] border border-[#757D6F]/30 text-[11px] font-extrabold">
+                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#242724] border border-[#757D6F]/30 text-[11px] font-extrabold">
                   {(
                     [
                       { id: 'recent', label: 'Recent' },
@@ -1416,7 +1416,7 @@ export function App() {
                       onClick={() => setSortBy(s.id)}
                       className={`px-2.5 py-1 rounded-lg cursor-pointer ${
                         sortBy === s.id
-                          ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                          ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                           : 'text-[#EEEAD7]/70 hover:text-[#EEEAD7]'
                       }`}
                     >
@@ -1425,12 +1425,12 @@ export function App() {
                   ))}
                 </div>
 
-                <div className="inline-flex items-center p-1 rounded-xl bg-[#1E0000] border border-[#757D6F]/30">
+                <div className="inline-flex items-center p-1 rounded-xl bg-[#242724] border border-[#757D6F]/30">
                   <button
                     onClick={() => setViewMode('grid')}
                     className={`p-1.5 rounded-lg cursor-pointer ${
                       viewMode === 'grid'
-                        ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                        ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                         : 'text-[#EEEAD7]/70'
                     }`}
                     title="Poster Grid"
@@ -1441,7 +1441,7 @@ export function App() {
                     onClick={() => setViewMode('table')}
                     className={`p-1.5 rounded-lg cursor-pointer ${
                       viewMode === 'table'
-                        ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                        ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                         : 'text-[#EEEAD7]/70'
                     }`}
                     title="Compact Table"
@@ -1457,8 +1457,8 @@ export function App() {
                 Loading library...
               </div>
             ) : filteredAnimes.length === 0 ? (
-              <div className="animate-page-enter bg-[#220000] rounded-3xl border border-[#757D6F]/35 p-12 text-center space-y-3">
-                <Film className="w-10 h-10 text-[#757D6F] mx-auto" />
+              <div className="animate-page-enter bg-[#242724] rounded-3xl border border-[#757D6F]/35 p-12 text-center space-y-3">
+                <Film className="w-10 h-10 text-[#8FA882] mx-auto" />
                 <p className="text-base font-black text-[#EEEAD7]">
                   No anime in this tab yet
                 </p>
@@ -1486,9 +1486,9 @@ export function App() {
                         setSelectedId(anime.id);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="animate-card-wave poster-card-spring group bg-[#380303] rounded-2xl border border-[#757D6F]/35 hover:border-[#EEEAD7]/60 overflow-hidden cursor-pointer flex flex-col justify-between shadow-[0_12px_28px_-8px_rgba(0,0,0,0.5)]"
+                      className="animate-card-wave poster-card-spring group bg-[#242724] rounded-2xl border border-[#757D6F]/30 hover:border-[#8FA882] overflow-hidden cursor-pointer flex flex-col justify-between shadow-[0_12px_28px_-8px_rgba(0,0,0,0.45)]"
                     >
-                      <div className="relative aspect-[2/3] w-full bg-[#1E0000] overflow-hidden">
+                      <div className="relative aspect-[2/3] w-full bg-[#121412] overflow-hidden">
                         {anime.posterUrl ? (
                           <img
                             src={anime.posterUrl}
@@ -1505,8 +1505,8 @@ export function App() {
                         {/* Top-Left Score Pill */}
                         {(anime.personalRating || anime.score) && (
                           <div className="absolute top-2.5 left-2.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#2D0000]/90 backdrop-blur-md border border-[#EEEAD7]/20 text-[#EEEAD7] text-[11px] font-black tabular-nums">
-                              <Star className="w-3 h-3 fill-[#EEEAD7] text-[#EEEAD7]" />
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#181A18]/90 backdrop-blur-md border border-[#EEEAD7]/20 text-[#EEEAD7] text-[11px] font-black tabular-nums">
+                              <Star className="w-3 h-3 fill-[#8FA882] text-[#8FA882]" />
                               {anime.personalRating ? `${anime.personalRating}/10` : anime.score}
                             </span>
                           </div>
@@ -1521,7 +1521,7 @@ export function App() {
                           className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                         >
                           <button
-                            className="p-1.5 rounded-lg bg-[#2D0000]/90 hover:bg-[#6D0808] text-[#EEEAD7] border border-[#EEEAD7]/20 cursor-pointer shadow"
+                            className="p-1.5 rounded-lg bg-[#181A18]/90 hover:bg-[#EEEAD7] text-[#EEEAD7] hover:text-[#181A18] border border-[#EEEAD7]/20 cursor-pointer shadow"
                             title="Move to Watched (Keep Poster) or Delete"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1531,12 +1531,12 @@ export function App() {
                         {/* Hover Quick Action Bar */}
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute inset-x-2.5 bottom-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-1.5 bg-[#2D0000]/95 backdrop-blur-md border border-[#757D6F]/40 p-1.5 rounded-xl"
+                          className="absolute inset-x-2.5 bottom-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-1.5 bg-[#181A18]/95 backdrop-blur-md border border-[#757D6F]/40 p-1.5 rounded-xl"
                         >
                           {anime.hasLocalFiles ? (
                             <button
                               onClick={() => handlePlayMpv(anime)}
-                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#6D0808] hover:bg-[#820A0A] text-[#EEEAD7] text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#8FA882] hover:bg-[#9DB590] text-[#181A18] text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
                             >
                               <Play className="w-3 h-3 fill-current" />
                               <span>Play</span>
@@ -1544,7 +1544,7 @@ export function App() {
                           ) : (
                             <button
                               onClick={() => setSelectedId(anime.id)}
-                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#EEEAD7] text-[#2D0000] text-[11px] font-extrabold cursor-pointer"
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#EEEAD7] text-[#181A18] text-[11px] font-extrabold cursor-pointer"
                             >
                               Details
                             </button>
@@ -1553,7 +1553,7 @@ export function App() {
                           {anime.status !== 'completed' && (
                             <button
                               onClick={(e) => handleQuickIncrementEpisode(anime, e)}
-                              className="py-1.5 px-2.5 rounded-lg bg-[#757D6F] hover:bg-[#848D7E] text-[#EEEAD7] text-[11px] font-black cursor-pointer tabular-nums"
+                              className="py-1.5 px-2.5 rounded-lg bg-[#242724] hover:bg-[#757D6F] text-[#EEEAD7] text-[11px] font-black cursor-pointer tabular-nums"
                             >
                               +1 Ep
                             </button>
@@ -1562,16 +1562,16 @@ export function App() {
                       </div>
 
                       {/* Minimalist Card Footer */}
-                      <div className="p-3.5 space-y-2 bg-[#380303]">
+                      <div className="p-3.5 space-y-2 bg-[#242724]">
                         <div>
                           <div className="flex items-center justify-between gap-1 mb-0.5">
                             <span
                               className={`text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
                                 anime.status === 'completed'
-                                  ? 'bg-[#757D6F] text-[#EEEAD7]'
+                                  ? 'bg-[#8FA882]/20 text-[#8FA882]'
                                   : anime.status === 'watching'
-                                    ? 'bg-[#6D0808] text-[#EEEAD7]'
-                                    : 'bg-[#220000] text-[#EEEAD7]/75'
+                                    ? 'bg-[#EEEAD7] text-[#181A18]'
+                                    : 'bg-[#181A18] text-[#EEEAD7]/75'
                               }`}
                             >
                               {anime.status === 'completed'
@@ -1586,15 +1586,15 @@ export function App() {
                                 : formatTime(anime.currentSeconds)}
                             </span>
                           </div>
-                          <h3 className="font-black text-sm text-[#EEEAD7] line-clamp-1 mt-1">
+                          <h3 className="font-black text-sm text-[#EEEAD7] line-clamp-1 mt-1 group-hover:text-[#8FA882]">
                             {anime.title}
                           </h3>
                         </div>
 
-                        <div className="w-full h-1.5 rounded-full bg-[#1E0000] overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-[#181A18] overflow-hidden">
                           <div
                             className={`animate-bar-fill h-full rounded-full ${
-                              anime.status === 'completed' ? 'bg-[#757D6F]' : 'bg-[#EEEAD7]'
+                              anime.status === 'completed' ? 'bg-[#8FA882]' : 'bg-[#EEEAD7]'
                             }`}
                             style={{
                               width: `${
@@ -1610,11 +1610,11 @@ export function App() {
               </div>
             ) : (
               /* COMPACT TABLE VIEW */
-              <div className="animate-page-enter bg-[#380303] rounded-2xl border border-[#757D6F]/35 overflow-hidden shadow-lg">
+              <div className="animate-page-enter bg-[#242724] rounded-2xl border border-[#757D6F]/35 overflow-hidden shadow-lg">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-[#757D6F]/30 text-[10px] font-black uppercase tracking-wider text-[#EEEAD7]/70 bg-[#220000]">
+                      <tr className="border-b border-[#757D6F]/30 text-[10px] font-black uppercase tracking-wider text-[#EEEAD7]/70 bg-[#181A18]">
                         <th className="py-3 px-4">Series</th>
                         <th className="py-3 px-3">Status</th>
                         <th className="py-3 px-3">Progress</th>
@@ -1629,14 +1629,14 @@ export function App() {
                           key={anime.id}
                           style={{ animationDelay: `${index * 40}ms` }}
                           onClick={() => setSelectedId(anime.id)}
-                          className="animate-card-wave hover:bg-[#460505] cursor-pointer"
+                          className="animate-card-wave hover:bg-[#2E322E] cursor-pointer"
                         >
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               <img
                                 src={anime.posterUrl}
                                 alt={anime.title}
-                                className="w-9 h-12 rounded-lg object-cover bg-[#1E0000] shrink-0"
+                                className="w-9 h-12 rounded-lg object-cover bg-[#181A18] shrink-0"
                               />
                               <div className="min-w-0">
                                 <p className="font-black text-[#EEEAD7] truncate max-w-xs">
@@ -1652,10 +1652,10 @@ export function App() {
                             <span
                               className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
                                 anime.status === 'completed'
-                                  ? 'bg-[#757D6F] text-[#EEEAD7]'
+                                  ? 'bg-[#8FA882] text-[#181A18]'
                                   : anime.status === 'watching'
-                                    ? 'bg-[#6D0808] text-[#EEEAD7]'
-                                    : 'bg-[#220000] text-[#EEEAD7]/75'
+                                    ? 'bg-[#EEEAD7] text-[#181A18]'
+                                    : 'bg-[#181A18] text-[#EEEAD7]/75'
                               }`}
                             >
                               {anime.status === 'completed' ? 'Watched' : anime.status}
@@ -1669,7 +1669,7 @@ export function App() {
                           </td>
                           <td className="py-3 px-3 tabular-nums">
                             {anime.hasLocalFiles ? (
-                              <span className="px-2 py-0.5 rounded bg-[#757D6F] text-[#EEEAD7] font-extrabold">
+                              <span className="px-2 py-0.5 rounded bg-[#8FA882]/20 text-[#8FA882] font-extrabold">
                                 {formatDiskSize(anime.totalDiskMB)}
                               </span>
                             ) : (
@@ -1693,7 +1693,7 @@ export function App() {
                               )}
                               <button
                                 onClick={() => setDeletingTarget(anime)}
-                                className="p-2 rounded-xl bg-[#220000] hover:bg-[#6D0808] text-[#EEEAD7]/70 hover:text-[#EEEAD7] border border-[#757D6F]/30 cursor-pointer"
+                                className="p-2 rounded-xl bg-[#181A18] hover:bg-[#EEEAD7] text-[#EEEAD7]/70 hover:text-[#181A18] border border-[#757D6F]/30 cursor-pointer"
                                 title="Move to Watched or Delete"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1711,17 +1711,17 @@ export function App() {
         </main>
       ) : (
         /* =====================================================================
-           SCREEN 2: SERIES DETAIL & UNIFIED EPISODE LIST (#2D0000 · #6D0808 · #757D6F · #EEEAD7)
+           SCREEN 2: SERIES DETAIL & UNIFIED EPISODE LIST (#181A18 · #242724 · #8FA882 · #EEEAD7)
            ===================================================================== */
         <main
           key={`detail-${selectedAnime.id}`}
           className="animate-page-enter max-w-6xl mx-auto px-4 sm:px-6 pt-7 space-y-8"
         >
-          <section className="bg-[#380303] rounded-3xl border border-[#757D6F]/35 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.55)] p-6 sm:p-8">
+          <section className="bg-[#242724] rounded-3xl border border-[#757D6F]/35 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.45)] p-6 sm:p-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Left Column: Poster & Clean Actions */}
               <div className="lg:col-span-3 flex flex-col items-center sm:items-start gap-3">
-                <div className="relative w-48 sm:w-full max-w-[220px] aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-[#EEEAD7]/20 bg-[#1E0000]">
+                <div className="relative w-48 sm:w-full max-w-[220px] aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-[#EEEAD7]/20 bg-[#181A18]">
                   {selectedAnime.posterUrl ? (
                     <img
                       src={selectedAnime.posterUrl}
@@ -1743,9 +1743,9 @@ export function App() {
                     setRematchingAnime(selectedAnime);
                     setSearchQuery(selectedAnime.title);
                   }}
-                  className="w-48 sm:w-full max-w-[220px] px-3 py-2 rounded-xl bg-[#220000] hover:bg-[#6D0808] border border-[#757D6F]/35 text-xs font-extrabold text-[#EEEAD7] flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-95"
+                  className="w-48 sm:w-full max-w-[220px] px-3 py-2 rounded-xl bg-[#181A18] hover:bg-[#2E322E] border border-[#757D6F]/35 text-xs font-extrabold text-[#EEEAD7] flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-95"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-[#EEEAD7]" />
+                  <RefreshCw className="w-3.5 h-3.5 text-[#8FA882]" />
                   <span>Change Poster</span>
                 </button>
               </div>
@@ -1756,26 +1756,26 @@ export function App() {
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
                       {selectedAnime.score && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#EEEAD7] text-[#2D0000] text-xs font-black flex items-center gap-1 tabular-nums">
-                          <Star className="w-3.5 h-3.5 fill-[#6D0808] text-[#6D0808]" />
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#EEEAD7] text-[#181A18] text-xs font-black flex items-center gap-1 tabular-nums">
+                          <Star className="w-3.5 h-3.5 fill-[#181A18] text-[#181A18]" />
                           {selectedAnime.score}
                         </span>
                       )}
                       {selectedAnime.studio && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#220000] border border-[#757D6F]/35 text-[#EEEAD7] text-xs font-extrabold">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#181A18] border border-[#757D6F]/35 text-[#EEEAD7] text-xs font-extrabold">
                           {selectedAnime.studio}
                         </span>
                       )}
                       {selectedAnime.genres?.map((g) => (
                         <span
                           key={g}
-                          className="px-2.5 py-0.5 rounded-full bg-[#220000] text-[#EEEAD7]/75 text-xs font-bold"
+                          className="px-2.5 py-0.5 rounded-full bg-[#181A18] text-[#EEEAD7]/75 text-xs font-bold"
                         >
                           {g}
                         </span>
                       ))}
                       {selectedAnime.hasLocalFiles && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#757D6F] text-[#EEEAD7] text-xs font-extrabold tabular-nums">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#8FA882]/20 text-[#8FA882] text-xs font-extrabold tabular-nums">
                           {formatDiskSize(selectedAnime.totalDiskMB)} on Disk
                         </span>
                       )}
@@ -1788,7 +1788,7 @@ export function App() {
 
                   {/* Custom Segmented Status Bar (Zero <select>!) */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center p-1 rounded-xl bg-[#1E0000] border border-[#757D6F]/30">
+                    <div className="inline-flex items-center p-1 rounded-xl bg-[#181A18] border border-[#757D6F]/30">
                       {(
                         [
                           { id: 'watching', label: 'Watching' },
@@ -1807,7 +1807,7 @@ export function App() {
                           }
                           className={`px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer transition-transform active:scale-95 ${
                             selectedAnime.status === st.id
-                              ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                              ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                               : 'text-[#EEEAD7]/70 hover:text-[#EEEAD7]'
                           }`}
                         >
@@ -1818,7 +1818,7 @@ export function App() {
 
                     {selectedAnime.status !== 'completed' && (
                       <TactileButton
-                        variant="emerald"
+                        variant="amber"
                         size="sm"
                         onClick={() => {
                           setCompletingAnime(selectedAnime);
@@ -1836,13 +1836,13 @@ export function App() {
                 {/* CLEAN EPISODE & CUSTOM TIMELINE SCRUBBER (ZERO NATIVE <input type="range">) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {/* Episode Stepper */}
-                  <div className="p-5 rounded-2xl bg-[#220000] border border-[#757D6F]/30 flex flex-col justify-between gap-4">
+                  <div className="p-5 rounded-2xl bg-[#181A18] border border-[#757D6F]/30 flex flex-col justify-between gap-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black uppercase tracking-wider text-[#EEEAD7]/70 flex items-center gap-1.5">
-                        <Tv className="w-4 h-4 text-[#EEEAD7]" />
+                        <Tv className="w-4 h-4 text-[#8FA882]" />
                         Episode Progress
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-[#757D6F] text-xs font-extrabold text-[#EEEAD7] tabular-nums">
+                      <span className="px-2 py-0.5 rounded bg-[#8FA882]/20 text-xs font-extrabold text-[#8FA882] tabular-nums">
                         {selectedAnime.watchedEpisodes.length} /{' '}
                         {selectedAnime.totalEpisodes || '?'} Done
                       </span>
@@ -1880,13 +1880,13 @@ export function App() {
                   </div>
 
                   {/* Custom Interactive Timeline Scrubber */}
-                  <div className="p-5 rounded-2xl bg-[#220000] border border-[#757D6F]/30 flex flex-col justify-between gap-4">
+                  <div className="p-5 rounded-2xl bg-[#181A18] border border-[#757D6F]/30 flex flex-col justify-between gap-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black uppercase tracking-wider text-[#EEEAD7]/70 flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-[#EEEAD7]" />
+                        <Clock className="w-4 h-4 text-[#8FA882]" />
                         Saved Timestamp
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-[#6D0808] text-xs font-extrabold text-[#EEEAD7] tabular-nums">
+                      <span className="px-2 py-0.5 rounded bg-[#8FA882] text-xs font-extrabold text-[#181A18] tabular-nums">
                         {progressPct}%
                       </span>
                     </div>
@@ -1908,7 +1908,7 @@ export function App() {
                           max={180}
                           value={editMin}
                           onChange={(e) => setEditMin(e.target.value)}
-                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7]"
+                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7]"
                           title="Minutes"
                         />
                         <span className="font-black text-[#EEEAD7]/60">:</span>
@@ -1918,7 +1918,7 @@ export function App() {
                           max={59}
                           value={editSec}
                           onChange={(e) => setEditSec(e.target.value)}
-                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7]"
+                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7]"
                           title="Seconds"
                         />
                         <TactileButton variant="amber" size="sm" onClick={handleManualTimeSave}>
@@ -1932,11 +1932,11 @@ export function App() {
                       <div
                         ref={scrubberRef}
                         onClick={handleScrubberClick}
-                        className="group relative w-full h-3 rounded-full bg-[#140000] border border-[#757D6F]/30 cursor-pointer overflow-hidden flex items-center"
+                        className="group relative w-full h-3 rounded-full bg-[#121412] border border-[#757D6F]/30 cursor-pointer overflow-hidden flex items-center"
                         title="Click anywhere on the timeline to jump to that minute"
                       >
                         <div
-                          className="animate-bar-fill h-full bg-[#EEEAD7] rounded-full"
+                          className="animate-bar-fill h-full bg-[#8FA882] rounded-full"
                           style={{ width: `${Math.max(3, progressPct)}%` }}
                         />
                       </div>
@@ -1956,7 +1956,7 @@ export function App() {
                               currentSeconds: (selectedAnime.currentSeconds || 0) + 85,
                             })
                           }
-                          className="hover:text-[#EEEAD7] cursor-pointer"
+                          className="hover:text-[#8FA882] cursor-pointer"
                         >
                           +85s (Skip OP)
                         </button>
@@ -1971,11 +1971,11 @@ export function App() {
                     {selectedAnime.hasLocalFiles ? (
                       <>
                         <TactileButton
-                          variant="white"
+                          variant="amber"
                           size="lg"
                           onClick={() => handlePlayMpv(selectedAnime)}
                         >
-                          <Play className="w-5 h-5 fill-current text-[#6D0808]" />
+                          <Play className="w-5 h-5 fill-current" />
                           <span>
                             Play in MPV (Ep {selectedAnime.currentEpisodeLabel} •{' '}
                             {formatTime(selectedAnime.currentSeconds)})
@@ -1984,7 +1984,7 @@ export function App() {
 
                         {selectedAnime.currentSeconds > 10 && (
                           <TactileButton
-                            variant="slate"
+                            variant="white"
                             size="md"
                             onClick={() => handlePlayMpv(selectedAnime, undefined, 0)}
                           >
@@ -2033,10 +2033,10 @@ export function App() {
                 </div>
 
                 {/* Scene Timestamp Bookmarks */}
-                <div className="p-4 rounded-2xl bg-[#220000] border border-[#757D6F]/30 space-y-3">
+                <div className="p-4 rounded-2xl bg-[#181A18] border border-[#757D6F]/30 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Bookmark className="w-4 h-4 text-[#EEEAD7]" />
+                      <Bookmark className="w-4 h-4 text-[#8FA882]" />
                       <h4 className="text-xs font-black uppercase tracking-wider text-[#EEEAD7]">
                         Scene Bookmarks
                       </h4>
@@ -2047,7 +2047,7 @@ export function App() {
                         value={bookmarkNote}
                         onChange={(e) => setBookmarkNote(e.target.value)}
                         placeholder={`Label for Ep ${selectedAnime.currentEpisodeLabel} at ${formatTime(selectedAnime.currentSeconds)}...`}
-                        className="flex-1 px-3 py-1.5 rounded-xl bg-[#380303] border border-[#757D6F]/40 text-xs font-bold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45"
+                        className="flex-1 px-3 py-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/40 text-xs font-bold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45"
                       />
                       <TactileButton variant="amber" size="sm" onClick={handleAddBookmark}>
                         <Plus className="w-3.5 h-3.5" />
@@ -2065,7 +2065,7 @@ export function App() {
                         return (
                           <div
                             key={bm.id}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#380303] border border-[#757D6F]/35 text-xs font-bold"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/35 text-xs font-bold"
                           >
                             <button
                               onClick={() => {
@@ -2081,8 +2081,8 @@ export function App() {
                               }}
                               className="flex items-center gap-1.5 text-left hover:opacity-85 cursor-pointer"
                             >
-                              <Play className="w-3 h-3 text-[#EEEAD7] fill-current" />
-                              <span className="font-black text-[#EEEAD7] tabular-nums">
+                              <Play className="w-3 h-3 text-[#8FA882] fill-current" />
+                              <span className="font-black text-[#8FA882] tabular-nums">
                                 Ep {bm.episodeLabel} • {formatTime(bm.seconds)}
                               </span>
                               <span className="text-[#EEEAD7]/75">— {bm.label}</span>
@@ -2133,10 +2133,10 @@ export function App() {
                         style={{ animationDelay: `${Math.min(idx * 30, 400)}ms` }}
                         className={`animate-card-wave poster-card-spring rounded-2xl border p-4 flex flex-col justify-between gap-3 ${
                           isCurrent
-                            ? 'bg-[#6D0808] text-[#EEEAD7] border-[#EEEAD7]/50 shadow-lg'
+                            ? 'bg-[#181A18] text-[#EEEAD7] border-[#8FA882] shadow-lg'
                             : isWatched
-                              ? 'bg-[#220000] border-[#757D6F]/40 opacity-90'
-                              : 'bg-[#2A0202] border-[#757D6F]/25'
+                              ? 'bg-[#181A18]/60 border-[#757D6F]/30 opacity-90'
+                              : 'bg-[#181A18] border-[#757D6F]/25'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -2146,10 +2146,10 @@ export function App() {
                               title="Toggle episode watched"
                               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-black cursor-pointer tabular-nums ${
                                 isWatched
-                                  ? 'bg-[#757D6F] text-[#EEEAD7]'
+                                  ? 'bg-[#8FA882] text-[#181A18]'
                                   : isCurrent
-                                    ? 'bg-[#EEEAD7] text-[#2D0000]'
-                                    : 'bg-[#380303] text-[#EEEAD7] border border-[#757D6F]/30'
+                                    ? 'bg-[#EEEAD7] text-[#181A18]'
+                                    : 'bg-[#242724] text-[#EEEAD7] border border-[#757D6F]/30'
                               }`}
                             >
                               {isWatched ? (
@@ -2178,7 +2178,7 @@ export function App() {
                             <button
                               onClick={() => markWatchedUpTo(file)}
                               title={`Mark Episodes 01 to ${file.episodeLabel} as watched`}
-                              className="p-1.5 rounded-lg bg-[#220000]/80 hover:bg-[#757D6F] text-[#EEEAD7]/80 hover:text-[#EEEAD7] cursor-pointer"
+                              className="p-1.5 rounded-lg bg-[#242724] hover:bg-[#757D6F] text-[#EEEAD7]/80 hover:text-[#EEEAD7] cursor-pointer"
                             >
                               <CheckCheck className="w-3.5 h-3.5" />
                             </button>
@@ -2188,13 +2188,13 @@ export function App() {
                                 setDeletingEpisode({ anime: selectedAnime, file })
                               }
                               title={`Delete Ep ${file.episodeLabel} .mkv file (${file.sizeMB} MB)`}
-                              className="p-1.5 rounded-lg bg-[#220000]/80 hover:bg-[#6D0808] text-[#EEEAD7]/80 hover:text-[#EEEAD7] cursor-pointer"
+                              className="p-1.5 rounded-lg bg-[#242724] hover:bg-[#EEEAD7] text-[#EEEAD7]/80 hover:text-[#181A18] cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
 
                             <TactileButton
-                              variant={isCurrent ? 'white' : 'amber'}
+                              variant={isCurrent ? 'amber' : 'white'}
                               size="sm"
                               onClick={() => handlePlayMpv(selectedAnime, file)}
                             >
@@ -2203,10 +2203,10 @@ export function App() {
                           </div>
                         </div>
 
-                        <div className="w-full h-1.5 rounded-full overflow-hidden bg-[#180000]">
+                        <div className="w-full h-1.5 rounded-full overflow-hidden bg-[#242724]">
                           <div
                             className={`animate-bar-fill h-full ${
-                              isWatched ? 'bg-[#757D6F]' : 'bg-[#EEEAD7]'
+                              isWatched ? 'bg-[#8FA882]' : 'bg-[#EEEAD7]'
                             }`}
                             style={{
                               width: `${isWatched ? 100 : savedSec > 5 ? Math.max(6, epPct) : 0}%`,
@@ -2224,11 +2224,11 @@ export function App() {
       )}
 
       {/* =====================================================================
-          MODAL 1: ULTRA-CLEAN ADD ANIME / CHANGE POSTER (#2D0000 · #6D0808 · #757D6F · #EEEAD7)
+          MODAL 1: ULTRA-CLEAN ADD ANIME / CHANGE POSTER (#181A18 · #242724 · #8FA882 · #EEEAD7)
          ===================================================================== */}
       {(showAddModal || rematchingAnime) && (
-        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#140000]/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="animate-modal-pop bg-[#2D0000] text-[#EEEAD7] w-full max-w-xl rounded-3xl border border-[#757D6F]/45 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.75)] p-6 max-h-[88vh] overflow-y-auto space-y-5">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#0F110F]/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-[#242724] text-[#EEEAD7] w-full max-w-xl rounded-3xl border border-[#757D6F]/45 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.75)] p-6 max-h-[88vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between border-b border-[#757D6F]/25 pb-3.5">
               <div>
                 <h3 className="text-lg font-black text-[#EEEAD7]">
@@ -2247,7 +2247,7 @@ export function App() {
                   setShowAddModal(false);
                   setRematchingAnime(null);
                 }}
-                className="p-2 rounded-xl bg-[#380303] hover:bg-[#6D0808] text-[#EEEAD7] cursor-pointer"
+                className="p-2 rounded-xl bg-[#181A18] hover:bg-[#2E322E] text-[#EEEAD7] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2256,7 +2256,7 @@ export function App() {
             {!rematchingAnime && (
               <div className="space-y-3">
                 {/* Custom Segmented Status Picker (No <select>!) */}
-                <div className="flex items-center justify-between gap-2 p-1.5 rounded-2xl bg-[#1E0000] border border-[#757D6F]/30">
+                <div className="flex items-center justify-between gap-2 p-1.5 rounded-2xl bg-[#181A18] border border-[#757D6F]/30">
                   {(
                     [
                       { id: 'plan', label: 'Watchlist' },
@@ -2270,7 +2270,7 @@ export function App() {
                       onClick={() => setNewStatus(st.id)}
                       className={`flex-1 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition-transform active:scale-95 ${
                         newStatus === st.id
-                          ? 'bg-[#EEEAD7] text-[#2D0000] shadow-sm'
+                          ? 'bg-[#EEEAD7] text-[#181A18] shadow-sm'
                           : 'text-[#EEEAD7]/70 hover:text-[#EEEAD7]'
                       }`}
                     >
@@ -2280,13 +2280,13 @@ export function App() {
                 </div>
 
                 {newStatus === 'watching' && (
-                  <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl bg-[#220000] border border-[#757D6F]/30">
+                  <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl bg-[#181A18] border border-[#757D6F]/30">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-extrabold text-[#EEEAD7]/70">Episode:</span>
                       <button
                         type="button"
                         onClick={() => setNewEp((p) => Math.max(1, p - 1))}
-                        className="p-1 rounded-lg bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                        className="p-1 rounded-lg bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
@@ -2296,7 +2296,7 @@ export function App() {
                       <button
                         type="button"
                         onClick={() => setNewEp((p) => p + 1)}
-                        className="p-1 rounded-lg bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                        className="p-1 rounded-lg bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -2309,20 +2309,20 @@ export function App() {
                         min={0}
                         value={newMin}
                         onChange={(e) => setNewMin(parseInt(e.target.value || '0', 10))}
-                        className="w-14 px-2 py-1 text-center rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] text-sm font-black"
+                        className="w-14 px-2 py-1 text-center rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] text-sm font-black"
                       />
                     </div>
                   </div>
                 )}
 
                 {newStatus === 'completed' && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#220000] border border-[#757D6F]/30">
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#181A18] border border-[#757D6F]/30">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-extrabold text-[#EEEAD7]/70">Score:</span>
                       <button
                         type="button"
                         onClick={() => setNewRating((p) => Math.max(1, p - 1))}
-                        className="p-1 rounded-lg bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                        className="p-1 rounded-lg bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
@@ -2332,7 +2332,7 @@ export function App() {
                       <button
                         type="button"
                         onClick={() => setNewRating((p) => Math.min(10, p + 1))}
-                        className="p-1 rounded-lg bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                        className="p-1 rounded-lg bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -2342,7 +2342,7 @@ export function App() {
                       value={newNotes}
                       onChange={(e) => setNewNotes(e.target.value)}
                       placeholder="Short review note..."
-                      className="flex-1 min-w-[160px] px-3 py-1.5 rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 text-xs font-bold"
+                      className="flex-1 min-w-[160px] px-3 py-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 text-xs font-bold"
                     />
                   </div>
                 )}
@@ -2357,7 +2357,7 @@ export function App() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Type anime title..."
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#1E0000] border border-[#757D6F]/45 text-sm font-extrabold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#EEEAD7]"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#181A18] border border-[#757D6F]/45 text-sm font-extrabold text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#8FA882]"
                   autoFocus
                 />
               </div>
@@ -2386,13 +2386,13 @@ export function App() {
                     <div
                       key={item.mal_id}
                       style={{ animationDelay: `${idx * 45}ms` }}
-                      className="animate-card-wave p-3 rounded-2xl bg-[#380303] border border-[#757D6F]/35 flex items-center justify-between gap-3"
+                      className="animate-card-wave p-3 rounded-2xl bg-[#181A18] border border-[#757D6F]/35 flex items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={item.images?.jpg?.image_url}
                           alt={item.title}
-                          className="w-11 h-16 object-cover rounded-lg bg-[#1E0000] shrink-0"
+                          className="w-11 h-16 object-cover rounded-lg bg-[#242724] shrink-0"
                         />
                         <div className="min-w-0">
                           <h4 className="font-black text-sm text-[#EEEAD7] truncate">
@@ -2403,7 +2403,7 @@ export function App() {
                             {item.score || '-'}
                           </p>
                           {existing && (
-                            <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-extrabold text-[#EEEAD7]">
+                            <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-extrabold text-[#8FA882]">
                               <AlertTriangle className="w-3 h-3" />
                               Already in library
                             </span>
@@ -2435,15 +2435,15 @@ export function App() {
           MODAL 2: UNIFIED DELETE / MOVE TO WATCHED MODAL (ZERO window.confirm!)
          ===================================================================== */}
       {deletingTarget && (
-        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#140000]/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="animate-modal-pop bg-[#2D0000] text-[#EEEAD7] w-full max-w-md rounded-3xl border border-[#757D6F]/45 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.75)] p-6 space-y-5">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#0F110F]/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-[#242724] text-[#EEEAD7] w-full max-w-md rounded-3xl border border-[#757D6F]/45 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.75)] p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-[#757D6F]/25 pb-3">
               <div className="flex items-center gap-3">
                 {deletingTarget.posterUrl && (
                   <img
                     src={deletingTarget.posterUrl}
                     alt={deletingTarget.title}
-                    className="w-10 h-14 rounded-lg object-cover bg-[#1E0000]"
+                    className="w-10 h-14 rounded-lg object-cover bg-[#181A18]"
                   />
                 )}
                 <div>
@@ -2457,7 +2457,7 @@ export function App() {
               </div>
               <button
                 onClick={() => setDeletingTarget(null)}
-                className="p-1.5 rounded-xl bg-[#380303] text-[#EEEAD7] cursor-pointer"
+                className="p-1.5 rounded-xl bg-[#181A18] text-[#EEEAD7] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2467,10 +2467,10 @@ export function App() {
               {/* PRIMARY CHOICE: Move to Watched & Keep Poster Forever */}
               <button
                 onClick={() => handleArchiveAndCleanVideos(deletingTarget, 'all')}
-                className="w-full p-4 rounded-2xl bg-[#380303] hover:bg-[#757D6F]/25 border-2 border-[#757D6F] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+                className="w-full p-4 rounded-2xl bg-[#181A18] hover:bg-[#8FA882]/15 border-2 border-[#8FA882] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
               >
                 <div>
-                  <span className="inline-block px-2 py-0.5 rounded bg-[#757D6F] text-[10px] font-black uppercase tracking-wider text-[#EEEAD7] mb-1">
+                  <span className="inline-block px-2 py-0.5 rounded bg-[#8FA882] text-[10px] font-black uppercase tracking-wider text-[#181A18] mb-1">
                     Recommended • Poster &amp; History Kept
                   </span>
                   <h4 className="text-sm font-black text-[#EEEAD7]">
@@ -2482,14 +2482,14 @@ export function App() {
                       : 'Moves this anime to your Watched (Completed) tab so its poster never disappears.'}
                   </p>
                 </div>
-                <Archive className="w-5 h-5 text-[#EEEAD7] shrink-0" />
+                <Archive className="w-5 h-5 text-[#8FA882] shrink-0" />
               </button>
 
               {/* OPTIONAL CHOICE: Clean Watched Episodes Only */}
               {deletingTarget.hasLocalFiles && deletingTarget.watchedEpisodes.length > 0 && (
                 <button
                   onClick={() => handleArchiveAndCleanVideos(deletingTarget, 'watched_only')}
-                  className="w-full p-4 rounded-2xl bg-[#220000] hover:bg-[#380303] border border-[#757D6F]/35 text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+                  className="w-full p-4 rounded-2xl bg-[#181A18] hover:bg-[#2E322E] border border-[#757D6F]/35 text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
                 >
                   <div>
                     <h4 className="text-sm font-black text-[#EEEAD7]">
@@ -2499,24 +2499,24 @@ export function App() {
                       Deletes .mkv files for episodes you already finished; keeps unwatched episodes.
                     </p>
                   </div>
-                  <HardDrive className="w-5 h-5 text-[#EEEAD7] shrink-0" />
+                  <HardDrive className="w-5 h-5 text-[#8FA882] shrink-0" />
                 </button>
               )}
 
               {/* DESTRUCTIVE CHOICE: Remove Card Completely */}
               <button
                 onClick={() => handleConfirmPermanentDelete(deletingTarget)}
-                className="w-full p-3.5 rounded-2xl bg-[#1E0000] hover:bg-[#6D0808] border border-[#6D0808] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+                className="w-full p-3.5 rounded-2xl bg-[#181A18] hover:bg-[#EEEAD7] text-[#EEEAD7] hover:text-[#181A18] border border-[#757D6F]/40 text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
               >
                 <div>
-                  <h4 className="text-xs font-black text-[#EEEAD7]">
+                  <h4 className="text-xs font-black">
                     Remove Card Permanently from Anideck
                   </h4>
-                  <p className="text-[11px] font-bold text-[#EEEAD7]/65">
+                  <p className="text-[11px] font-bold opacity-70">
                     Completely erases this entry from your library memory.
                   </p>
                 </div>
-                <Trash2 className="w-4 h-4 text-[#EEEAD7] shrink-0" />
+                <Trash2 className="w-4 h-4 shrink-0" />
               </button>
             </div>
           </div>
@@ -2527,8 +2527,8 @@ export function App() {
           MODAL 3: CUSTOM SINGLE EPISODE DELETE MODAL (ZERO window.confirm!)
          ===================================================================== */}
       {deletingEpisode && (
-        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#140000]/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="animate-modal-pop bg-[#2D0000] text-[#EEEAD7] w-full max-w-sm rounded-3xl border border-[#757D6F]/45 shadow-2xl p-6 space-y-4">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#0F110F]/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-[#242724] text-[#EEEAD7] w-full max-w-sm rounded-3xl border border-[#757D6F]/45 shadow-2xl p-6 space-y-4">
             <h3 className="text-base font-black text-[#EEEAD7]">
               Clean Episode {deletingEpisode.file.episodeLabel} Video?
             </h3>
@@ -2567,22 +2567,22 @@ export function App() {
           MODAL 4: MARK COMPLETED MODAL (CUSTOM STEPPER & CUSTOM TOGGLE SWITCH)
          ===================================================================== */}
       {completingAnime && (
-        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#140000]/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="animate-modal-pop bg-[#2D0000] text-[#EEEAD7] w-full max-w-md rounded-3xl border border-[#757D6F]/45 shadow-2xl p-6 space-y-5">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#0F110F]/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-[#242724] text-[#EEEAD7] w-full max-w-md rounded-3xl border border-[#757D6F]/45 shadow-2xl p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black text-[#EEEAD7] flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-[#EEEAD7]" />
+                <Trophy className="w-5 h-5 text-[#8FA882]" />
                 <span>Move to Watched</span>
               </h3>
               <button
                 onClick={() => setCompletingAnime(null)}
-                className="p-1.5 rounded-xl bg-[#380303] text-[#EEEAD7] cursor-pointer"
+                className="p-1.5 rounded-xl bg-[#181A18] text-[#EEEAD7] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-[#220000] border border-[#757D6F]/30">
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-[#181A18] border border-[#757D6F]/30">
               <span className="text-xs font-black uppercase text-[#EEEAD7]/75">
                 Personal Score
               </span>
@@ -2590,17 +2590,17 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => setCompleteRating((r) => Math.max(1, r - 1))}
-                  className="p-1.5 rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                  className="p-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
-                <span className="text-xl font-black text-[#EEEAD7] tabular-nums w-12 text-center">
+                <span className="text-xl font-black text-[#8FA882] tabular-nums w-12 text-center">
                   {completeRating}/10
                 </span>
                 <button
                   type="button"
                   onClick={() => setCompleteRating((r) => Math.min(10, r + 1))}
-                  className="p-1.5 rounded-xl bg-[#380303] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
+                  className="p-1.5 rounded-xl bg-[#242724] border border-[#757D6F]/40 text-[#EEEAD7] cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -2616,7 +2616,7 @@ export function App() {
                 value={completeReview}
                 onChange={(e) => setCompleteReview(e.target.value)}
                 placeholder="Write your thoughts..."
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#1E0000] border border-[#757D6F]/40 font-bold text-sm text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#EEEAD7]"
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#181A18] border border-[#757D6F]/40 font-bold text-sm text-[#EEEAD7] placeholder:text-[#EEEAD7]/45 focus:outline-none focus:border-[#8FA882]"
               />
             </div>
 
@@ -2624,7 +2624,7 @@ export function App() {
             {completingAnime.hasLocalFiles && (
               <div
                 onClick={() => setDeleteFilesOnComplete((prev) => !prev)}
-                className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-[#220000] border border-[#757D6F]/30 cursor-pointer select-none"
+                className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-[#181A18] border border-[#757D6F]/30 cursor-pointer select-none"
               >
                 <div className="text-xs">
                   <span className="font-black text-[#EEEAD7] block">
@@ -2636,7 +2636,7 @@ export function App() {
                 </div>
                 <div
                   className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 shrink-0 ${
-                    deleteFilesOnComplete ? 'bg-[#757D6F]' : 'bg-[#380303]'
+                    deleteFilesOnComplete ? 'bg-[#8FA882]' : 'bg-[#242724]'
                   }`}
                 >
                   <div
@@ -2656,7 +2656,7 @@ export function App() {
               >
                 Cancel
               </TactileButton>
-              <TactileButton variant="emerald" size="md" onClick={handleConfirmComplete}>
+              <TactileButton variant="amber" size="md" onClick={handleConfirmComplete}>
                 <Check className="w-4 h-4" />
                 <span>Save to Watched</span>
               </TactileButton>

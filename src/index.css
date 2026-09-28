@@ -4,15 +4,15 @@
 
 @layer base {
   body {
-    background-color: #2D0000;
+    background-color: #181A18;
     color: #EEEAD7;
     font-family: 'Nunito', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background-color: #6D0808;
-    color: #EEEAD7;
+    background-color: #8FA882;
+    color: #181A18;
   }
 
   /* Ban native browser number input spin arrows */
@@ -129,22 +129,22 @@
   transform: scale(1.07);
 }
 
-/* Grand Velvet Cinema Scrollbar (#2D0000 / #6D0808 / #757D6F / #EEEAD7) */
+/* Kyoto Matcha & Warm Charcoal Scrollbar (#181A18 / #242724 / #8FA882 / #EEEAD7) */
 ::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #2D0000;
+  background: #181A18;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #6D0808;
+  background: #363B36;
   border-radius: 9999px;
-  border: 2px solid #2D0000;
+  border: 2px solid #181A18;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #757D6F;
+  background: #8FA882;
 }
