@@ -49,11 +49,20 @@ export interface AnimeEntry {
   personalRating?: number;
   studio?: string;
   genres?: string[];
+  year?: number;
   startedAt?: string;
   completedAt?: string;
+  archivedAt?: string;
   notes?: string;
   watchedEpisodes: string[];
   episodeProgress: Record<string, { seconds: number; duration: number }>;
+  bookmarks?: {
+    id: string;
+    episodeLabel: string;
+    seconds: number;
+    label: string;
+    createdAt: string;
+  }[];
 }
 
 interface LiveMpvState {
@@ -548,6 +557,22 @@ function queryMpvProperty(property: string): Promise<number | null> {
   });
 }
 
+function sendMpvCommand(command: any[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const client = net.connect(IPC_PIPE, () => {
+      const cmd = JSON.stringify({ command }) + '\n';
+      client.write(cmd);
+      client.end();
+      resolve(true);
+    });
+    client.on('error', () => resolve(false));
+    setTimeout(() => {
+      client.destroy();
+      resolve(false);
+    }, 350);
+  });
+}
+
 function anideckLocalApi(): Plugin {
   return {
     name: 'anideck-local-api',
@@ -643,10 +668,12 @@ function anideckLocalApi(): Plugin {
             const files = anime.folderName
               ? scanAnimeFolder(anime.folderName, forceRescan)
               : [];
+            const totalDiskMB = Math.round(files.reduce((sum, f) => sum + (f.sizeMB || 0), 0));
             return {
               ...anime,
               hasLocalFiles: files.length > 0,
               localFiles: files,
+              totalDiskMB,
             };
           });
           res.end(
@@ -826,6 +853,142 @@ function anideckLocalApi(): Plugin {
           state.animes = state.animes.filter((a) => a.id !== id);
           saveState(state);
           res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+
+        // POST /api/delete-videos -> Steam-style Storage Cleaner: delete .mkv video files while keeping Poster & Watched History 100% intact!
+        if (req.url === '/api/delete-videos' && req.method === 'POST') {
+          const { id, mode, fullPath, episodeLabel, rating, review } = await readBody();
+          const state = loadState();
+          const anime = state.animes.find((a) => a.id === id);
+          if (!anime) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'Anime entry not found' }));
+            return;
+          }
+
+          let deletedCount = 0;
+          let freedMB = 0;
+          const files = anime.folderName ? scanAnimeFolder(anime.folderName, true) : [];
+
+          if (mode === 'single' && fullPath) {
+            const resolvedTarget = path.resolve(fullPath);
+            const resolvedAnimeDir = path.resolve(ANIME_DIR);
+            const resolvedPostersDir = path.resolve(POSTERS_DIR);
+            if (
+              resolvedTarget.startsWith(resolvedAnimeDir) &&
+              !resolvedTarget.startsWith(resolvedPostersDir) &&
+              fs.existsSync(resolvedTarget)
+            ) {
+              const stat = fs.statSync(resolvedTarget);
+              freedMB = Math.round((stat.size / (1024 * 1024)) * 10) / 10;
+              fs.unlinkSync(resolvedTarget);
+              deletedCount = 1;
+              if (episodeLabel && !anime.watchedEpisodes.includes(episodeLabel)) {
+                anime.watchedEpisodes.push(episodeLabel);
+              }
+            }
+          } else if (mode === 'watched_only') {
+            const watchedSet = new Set(anime.watchedEpisodes || []);
+            for (const f of files) {
+              if (watchedSet.has(f.episodeLabel) && fs.existsSync(f.fullPath)) {
+                freedMB += f.sizeMB || 0;
+                fs.unlinkSync(f.fullPath);
+                deletedCount++;
+              }
+            }
+          } else {
+            // mode === 'all': Delete all .mkv video files for this anime & archive permanently in Completed (Watched) with Poster intact!
+            for (const f of files) {
+              if (fs.existsSync(f.fullPath)) {
+                freedMB += f.sizeMB || 0;
+                fs.unlinkSync(f.fullPath);
+                deletedCount++;
+              }
+            }
+            // Remove empty series directory inside anime/ (never touching anime/.posters/)
+            if (anime.folderName) {
+              const seriesDir = path.resolve(path.join(ANIME_DIR, anime.folderName));
+              const resolvedAnimeDir = path.resolve(ANIME_DIR);
+              const resolvedPostersDir = path.resolve(POSTERS_DIR);
+              if (
+                seriesDir.startsWith(resolvedAnimeDir) &&
+                seriesDir !== resolvedAnimeDir &&
+                !seriesDir.startsWith(resolvedPostersDir) &&
+                fs.existsSync(seriesDir)
+              ) {
+                try {
+                  fs.rmSync(seriesDir, { recursive: true, force: true });
+                } catch {
+                  // Ignore if locked
+                }
+              }
+            }
+
+            const today = new Date().toISOString().slice(0, 10);
+            const totalEps = Math.max(anime.totalEpisodes || 0, files.length || 12);
+            const allLabels =
+              files.length > 0
+                ? files.map((f) => f.episodeLabel)
+                : Array.from({ length: totalEps }, (_, i) => String(i + 1).padStart(2, '0'));
+
+            anime.status = 'completed';
+            anime.totalEpisodes = totalEps;
+            anime.currentEpisode = totalEps;
+            anime.currentEpisodeLabel = allLabels[allLabels.length - 1] || String(totalEps).padStart(2, '0');
+            anime.currentSeconds = anime.durationSeconds || 1420;
+            anime.watchedEpisodes = Array.from(new Set([...(anime.watchedEpisodes || []), ...allLabels]));
+            anime.completedAt = anime.completedAt || today;
+            anime.archivedAt = today;
+            if (typeof rating === 'number') anime.personalRating = rating;
+            if (typeof review === 'string' && review.trim()) anime.notes = review.trim();
+          }
+
+          folderScanCache.clear();
+          saveState(state);
+          res.end(
+            JSON.stringify({
+              ok: true,
+              deletedCount,
+              freedMB: Math.round(freedMB),
+              anime,
+            })
+          );
+          return;
+        }
+
+        // POST /api/mpv-command -> Live MPV Remote Control via Named Pipe IPC
+        if (req.url === '/api/mpv-command' && req.method === 'POST') {
+          const { command } = await readBody();
+          if (Array.isArray(command)) {
+            const ok = await sendMpvCommand(command);
+            res.end(JSON.stringify({ ok }));
+            return;
+          }
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'Invalid MPV command array' }));
+          return;
+        }
+
+        // POST /api/import-backup -> Restore or merge portable JSON backup
+        if (req.url === '/api/import-backup' && req.method === 'POST') {
+          const { animes: importedAnimes } = await readBody();
+          if (!Array.isArray(importedAnimes)) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'Invalid backup format' }));
+            return;
+          }
+          const state = loadState();
+          const byId = new Map(state.animes.map((a) => [a.id, a]));
+          for (const item of importedAnimes) {
+            if (item && item.id && item.title) {
+              const { localFiles, hasLocalFiles, totalDiskMB, ...clean } = item;
+              byId.set(clean.id, { ...(byId.get(clean.id) || {}), ...clean });
+            }
+          }
+          state.animes = Array.from(byId.values());
+          saveState(state);
+          res.end(JSON.stringify({ ok: true, count: state.animes.length }));
           return;
         }
 
