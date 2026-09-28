@@ -1,5 +1,4 @@
 import React from 'react';
-import { sound } from '../lib/sound';
 
 interface TactileButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'emerald' | 'amber' | 'sky' | 'rose' | 'slate' | 'white';
@@ -17,9 +16,8 @@ export const TactileButton: React.FC<TactileButtonProps> = ({
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!disabled) {
-      sound.playPop();
-      if (onClick) onClick(e);
+    if (!disabled && onClick) {
+      onClick(e);
     }
   };
 
