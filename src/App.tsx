@@ -61,8 +61,9 @@ export const App: React.FC = () => {
   const [editMin, setEditMin] = useState<string>('00');
   const [editSec, setEditSec] = useState<string>('00');
 
-  // Add / Search Anime Modal
+  // Add / Search / Re-match Anime Modal
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  const [rematchingAnime, setRematchingAnime] = useState<AnimeEntry | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [jikanResults, setJikanResults] = useState<JikanAnimeItem[]>([]);
   const [searchingMal, setSearchingMal] = useState<boolean>(false);
@@ -166,7 +167,11 @@ export const App: React.FC = () => {
     return selectedAnime.localFiles.filter((f) => f.part === selectedPart);
   }, [selectedAnime, selectedPart]);
 
-  const saveAnimeUpdate = async (updated: AnimeEntry, silent = false) => {
+  const saveAnimeUpdate = async (
+    updated: AnimeEntry,
+    silent = false,
+    forceOverwritePoster = false
+  ) => {
     setAnimes((prev) => {
       const exists = prev.some((a) => a.id === updated.id);
       return exists ? prev.map((a) => (a.id === updated.id ? updated : a)) : [updated, ...prev];
@@ -174,13 +179,23 @@ export const App: React.FC = () => {
     const res = await fetch('/api/update-anime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated),
+      body: JSON.stringify({ ...updated, forceOverwritePoster }),
     });
     try {
       const data = await res.json();
-      if (data.posterUrl && data.posterUrl !== updated.posterUrl) {
+      if (data.anime || (data.posterUrl && data.posterUrl !== updated.posterUrl)) {
         setAnimes((prev) =>
-          prev.map((a) => (a.id === updated.id ? { ...a, posterUrl: data.posterUrl } : a))
+          prev.map((a) =>
+            a.id === updated.id
+              ? {
+                  ...a,
+                  ...(data.anime || {}),
+                  posterUrl: data.posterUrl || a.posterUrl,
+                  hasLocalFiles: a.hasLocalFiles,
+                  localFiles: a.localFiles,
+                }
+              : a
+          )
         );
       }
     } catch {
@@ -374,21 +389,66 @@ export const App: React.FC = () => {
     showNotice('📂 Membuka folder anime di Windows File Explorer...');
   };
 
+  const handlePrepareFolder = async (anime: AnimeEntry) => {
+    sound.playPop();
+    const res = await fetch('/api/prepare-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: anime.id, title: anime.title }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setAnimes((prev) =>
+        prev.map((a) => (a.id === anime.id ? { ...a, folderName: data.folderName } : a))
+      );
+      showNotice(
+        `📂 Folder "${data.folderName}" siap di anime/! Silakan paste file .mkv hasil download ke sana.`
+      );
+    }
+  };
+
+  const runMalSearch = useCallback(
+    async (queryStr: string, showErrorToast = false) => {
+      const q = queryStr.trim();
+      if (q.length < 2) {
+        setJikanResults([]);
+        return;
+      }
+      setSearchingMal(true);
+      try {
+        const res = await fetch(
+          `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=6&sfw=true`
+        );
+        const data = await res.json();
+        setJikanResults(data.data || []);
+      } catch {
+        if (showErrorToast) {
+          showNotice('Sedang offline — kamu tetap bisa klik Simpan Manual!');
+        }
+      } finally {
+        setSearchingMal(false);
+      }
+    },
+    [showNotice]
+  );
+
+  // Live debounced auto-search when user types in Add / Rematch Poster Modal
+  useEffect(() => {
+    if (!showAddModal && !rematchingAnime) return;
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setJikanResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      runMalSearch(q, false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery, showAddModal, rematchingAnime, runMalSearch]);
+
   const handleSearchMal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setSearchingMal(true);
-    try {
-      const res = await fetch(
-        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchQuery.trim())}&limit=6&sfw=true`
-      );
-      const data = await res.json();
-      setJikanResults(data.data || []);
-    } catch {
-      showNotice('Sedang offline — kamu tetap bisa klik Simpan Manual!');
-    } finally {
-      setSearchingMal(false);
-    }
+    await runMalSearch(searchQuery, true);
   };
 
   const checkDuplicate = useCallback(
@@ -404,7 +464,42 @@ export const App: React.FC = () => {
     [animes]
   );
 
+  const handleRematchPosterFromJikan = async (item: JikanAnimeItem) => {
+    if (!rematchingAnime) return;
+    sound.playSuccess();
+    const canonicalTitle = item.title_english || item.title;
+    const updated: AnimeEntry = {
+      ...rematchingAnime,
+      title: canonicalTitle,
+      aliases: Array.from(
+        new Set([
+          ...rematchingAnime.aliases,
+          item.title,
+          ...(item.title_synonyms || []),
+        ])
+      ).slice(0, 5),
+      malId: item.mal_id,
+      posterUrl: item.images?.jpg?.large_image_url || item.images?.jpg?.image_url,
+      score: item.score || rematchingAnime.score,
+      studio: item.studios?.[0]?.name || rematchingAnime.studio,
+      genres: item.genres?.map((g) => g.name).slice(0, 4) || rematchingAnime.genres,
+      totalEpisodes: rematchingAnime.hasLocalFiles
+        ? rematchingAnime.totalEpisodes
+        : item.episodes || rematchingAnime.totalEpisodes,
+    };
+
+    await saveAnimeUpdate(updated, true, true);
+    showNotice(`🖼️ Poster & info "${canonicalTitle}" berhasil diperbarui ke lokal!`);
+    setRematchingAnime(null);
+    setSearchQuery('');
+    setJikanResults([]);
+  };
+
   const handleAddFromJikan = async (item: JikanAnimeItem) => {
+    if (rematchingAnime) {
+      await handleRematchPosterFromJikan(item);
+      return;
+    }
     const canonicalTitle = item.title_english || item.title;
     const dup = checkDuplicate(canonicalTitle, item.mal_id);
     if (dup) {
@@ -716,6 +811,14 @@ export const App: React.FC = () => {
                               <Clock className="w-3 h-3 text-[#FDBA74]" />
                               Menit {formatTime(anime.currentSeconds)} / {formatTime(dur)}
                             </span>
+                            {!anime.hasLocalFiles && (
+                              <span
+                                className="px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700/50 text-[10px] font-extrabold"
+                                title="Belum ada file .mkv lokal — sedang dicatat dalam mode Tracker"
+                              >
+                                ☁️ Belum Di-download (Tracker)
+                              </span>
+                            )}
                             {isLocalCached && (
                               <span
                                 className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50 text-[10px] font-extrabold flex items-center gap-1"
@@ -742,7 +845,7 @@ export const App: React.FC = () => {
                             className="flex flex-wrap items-center gap-2.5 pt-1"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {anime.hasLocalFiles && (
+                            {anime.hasLocalFiles ? (
                               <TactileButton
                                 variant="amber"
                                 size="sm"
@@ -753,6 +856,16 @@ export const App: React.FC = () => {
                                   Resume MPV (Eps {anime.currentEpisodeLabel} •{' '}
                                   {formatTime(anime.currentSeconds)})
                                 </span>
+                              </TactileButton>
+                            ) : (
+                              <TactileButton
+                                variant="amber"
+                                size="sm"
+                                onClick={() => handlePrepareFolder(anime)}
+                                title="Buatkan folder otomatis di anime/ agar siap diisi file .mkv hasil download"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5" />
+                                <span>Siapkan Folder Video</span>
                               </TactileButton>
                             )}
 
@@ -981,8 +1094,8 @@ export const App: React.FC = () => {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
           <section className="bg-[#131B2E] rounded-3xl border border-slate-800 shadow-[0_12px_35px_rgba(0,0,0,0.5)] p-5 sm:p-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
-              {/* Left Column: 2:3 Cinema Poster */}
-              <div className="lg:col-span-3 flex flex-col items-center sm:items-start">
+              {/* Left Column: 2:3 Cinema Poster & Re-match Poster Button */}
+              <div className="lg:col-span-3 flex flex-col items-center sm:items-start gap-3">
                 <div className="relative w-48 sm:w-full max-w-[230px] aspect-[2/3] rounded-2xl overflow-hidden border border-slate-700 shadow-xl bg-slate-900">
                   {selectedAnime.posterUrl ? (
                     <img
@@ -1005,6 +1118,19 @@ export const App: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                <button
+                  onClick={() => {
+                    sound.playClick(true);
+                    setRematchingAnime(selectedAnime);
+                    setSearchQuery(selectedAnime.title);
+                  }}
+                  className="w-48 sm:w-full max-w-[230px] px-3 py-2 rounded-xl bg-[#0B0F19] hover:bg-slate-800 border border-slate-700 text-xs font-extrabold text-slate-300 hover:text-[#FDBA74] flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="Salah poster karena nama folder typo? Klik untuk pilih ulang poster dari MyAnimeList"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-[#FDBA74]" />
+                  <span>Ganti Poster / Pilih Ulang MAL</span>
+                </button>
               </div>
 
               {/* Right Column: Series Metadata & Precision Episode/Timestamp Monitor */}
@@ -1285,18 +1411,40 @@ export const App: React.FC = () => {
                         )}
                       </>
                     ) : (
-                      <div className="px-4 py-2.5 rounded-xl bg-[#0B0F19] border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2">
-                        <FolderOpen className="w-4 h-4 text-[#F97316] shrink-0" />
-                        <span>
-                          Anime ini tercatat di memori riwayatmu (file <code>.mkv</code> lokal tidak
-                          ada / sudah dihapus).
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <TactileButton
+                          variant="amber"
+                          size="md"
+                          onClick={() => handlePrepareFolder(selectedAnime)}
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          <span>
+                            {selectedAnime.folderName
+                              ? `Buka Folder "${selectedAnime.folderName}" (Siap Isi .mkv)`
+                              : 'Siapkan Folder Video di anime/'}
+                          </span>
+                        </TactileButton>
+
+                        <TactileButton
+                          variant="emerald"
+                          size="md"
+                          onClick={() => handleStepEpisode(1)}
+                          title="Catat maju 1 episode (cocok kalau kamu nonton lewat streaming/HP)"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>+1 Episode Selesai</span>
+                        </TactileButton>
+
+                        <span className="text-xs font-bold text-slate-400 px-2">
+                          ☁️ Belum ada file <code>.mkv</code> lokal — otomatis nyambung saat nanti
+                          kamu taruh videonya di <code>anime/</code>!
                         </span>
                       </div>
                     )}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {selectedAnime.folderName && (
+                    {selectedAnime.folderName && selectedAnime.hasLocalFiles && (
                       <TactileButton
                         variant="slate"
                         size="sm"
@@ -1483,106 +1631,114 @@ export const App: React.FC = () => {
         </main>
       )}
 
-      {/* MODAL 1: TAMBAH / CARI ANIME (JIKAN MYANIMELIST + AUTO LOCAL POSTER DOWNLOAD) */}
-      {showAddModal && (
+      {/* MODAL 1: TAMBAH / CARI ANIME ATAU GANTI POSTER DARI MAL */}
+      {(showAddModal || rematchingAnime) && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
           <div className="bg-[#131B2E] w-full max-w-2xl rounded-3xl border border-slate-700 shadow-2xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-xl font-black text-white">
-                  ➕ Tambah Anime &amp; Simpan Poster ke Lokal
+                  {rematchingAnime
+                    ? `🖼️ Ganti Poster & Info MAL: "${rematchingAnime.title}"`
+                    : '➕ Tambah Anime & Simpan Poster ke Lokal'}
                 </h3>
                 <p className="text-xs font-bold text-slate-400">
-                  Begitu ditambahkan, poster otomatis diunduh ke harddisk lokalmu agar seterusnya
-                  bebas internet!
+                  {rematchingAnime
+                    ? 'Ketik judul yang benar di bawah — klik salah satu hasil untuk langsung mengganti poster lokalmu!'
+                    : 'Ketik judul anime (otomatis cari live meski agak typo) — poster langsung diunduh ke lokal agar bebas internet!'}
                 </p>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  setRematchingAnime(null);
+                }}
                 className="p-2 rounded-xl bg-[#0B0F19] border border-slate-700 text-slate-300 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#0B0F19] border border-slate-800">
-              <div>
-                <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
-                  Kategori Status:
-                </label>
-                <select
-                  value={newStatus}
-                  onChange={(e) =>
-                    setNewStatus(e.target.value as 'watching' | 'completed' | 'plan')
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#131B2E] border border-slate-700 text-xs font-black text-white"
-                >
-                  <option value="watching">🟢 Sedang Ditonton</option>
-                  <option value="completed">🏆 Sudah Ditonton (Tamat)</option>
-                  <option value="plan">📋 Rencana Tonton</option>
-                </select>
+            {!rematchingAnime && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#0B0F19] border border-slate-800">
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                    Kategori Status:
+                  </label>
+                  <select
+                    value={newStatus}
+                    onChange={(e) =>
+                      setNewStatus(e.target.value as 'watching' | 'completed' | 'plan')
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#131B2E] border border-slate-700 text-xs font-black text-white"
+                  >
+                    <option value="watching">🟢 Sedang Ditonton</option>
+                    <option value="completed">🏆 Sudah Ditonton (Tamat)</option>
+                    <option value="plan">📋 Rencana Tonton (Belum Download)</option>
+                  </select>
+                </div>
+
+                {newStatus === 'watching' && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                        Episode Saat Ini:
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newEp}
+                        onChange={(e) => setNewEp(parseInt(e.target.value || '1', 10))}
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                        Menit Terakhir:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={newMin}
+                        onChange={(e) => setNewMin(parseInt(e.target.value || '0', 10))}
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
+                        placeholder="Contoh: 14"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {newStatus === 'completed' && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                        Rating Pribadi (1-10):
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={newRating}
+                        onChange={(e) => setNewRating(parseInt(e.target.value || '9', 10))}
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                        Ulasan Singkat:
+                      </label>
+                      <input
+                        type="text"
+                        value={newNotes}
+                        onChange={(e) => setNewNotes(e.target.value)}
+                        placeholder="Masterpiece!"
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-bold text-white"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-
-              {newStatus === 'watching' && (
-                <>
-                  <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
-                      Episode Saat Ini:
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={newEp}
-                      onChange={(e) => setNewEp(parseInt(e.target.value || '1', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
-                      Menit Terakhir:
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newMin}
-                      onChange={(e) => setNewMin(parseInt(e.target.value || '0', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
-                      placeholder="Contoh: 14"
-                    />
-                  </div>
-                </>
-              )}
-
-              {newStatus === 'completed' && (
-                <>
-                  <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
-                      Rating Pribadi (1-10):
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={newRating}
-                      onChange={(e) => setNewRating(parseInt(e.target.value || '9', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
-                      Ulasan Singkat:
-                    </label>
-                    <input
-                      type="text"
-                      value={newNotes}
-                      onChange={(e) => setNewNotes(e.target.value)}
-                      placeholder="Masterpiece!"
-                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-bold text-white"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+            )}
 
             <form onSubmit={handleSearchMal} className="flex gap-2">
               <div className="relative flex-1">
@@ -1591,7 +1747,7 @@ export const App: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari judul anime di MyAnimeList (misal: Frieren, Solo Leveling)..."
+                  placeholder="Ketik judul anime (otomatis muncul pilihan poster saat mengetik)..."
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#0B0F19] border border-slate-700 text-sm font-extrabold text-white"
                   autoFocus
                 />
@@ -1599,15 +1755,19 @@ export const App: React.FC = () => {
               <TactileButton type="submit" variant="amber" size="md" disabled={searchingMal}>
                 {searchingMal ? 'Mencari...' : 'Cari MAL'}
               </TactileButton>
-              <TactileButton type="button" variant="slate" size="md" onClick={handleAddManual}>
-                Simpan Manual
-              </TactileButton>
+              {!rematchingAnime && (
+                <TactileButton type="button" variant="slate" size="md" onClick={handleAddManual}>
+                  Simpan Manual
+                </TactileButton>
+              )}
             </form>
 
             <div className="space-y-2.5">
               {jikanResults.map((item) => {
                 const canonicalTitle = item.title_english || item.title;
-                const existing = checkDuplicate(canonicalTitle, item.mal_id);
+                const existing = !rematchingAnime
+                  ? checkDuplicate(canonicalTitle, item.mal_id)
+                  : undefined;
                 return (
                   <div
                     key={item.mal_id}
@@ -1641,7 +1801,11 @@ export const App: React.FC = () => {
                       size="sm"
                       onClick={() => handleAddFromJikan(item)}
                     >
-                      {existing ? 'Buka' : '+ Tambah & Cache Poster'}
+                      {rematchingAnime
+                        ? '🖼️ Pakai Poster Ini'
+                        : existing
+                          ? 'Buka'
+                          : '+ Tambah & Cache Poster'}
                     </TactileButton>
                   </div>
                 );
