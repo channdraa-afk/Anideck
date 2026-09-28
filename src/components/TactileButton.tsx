@@ -21,20 +21,20 @@ export const TactileButton: React.FC<TactileButtonProps> = ({
     }
   };
 
-  // Warm Studio Editorial Palette (Soft Terracotta, Calm Sage, Warm Espresso, Alabaster White)
+  // Grand Velvet Cinema Palette (#6D0808 Crimson, #2D0000 Oxblood, #757D6F Olive Sage, #EEEAD7 Parchment Cream)
   const variants = {
     amber:
-      'bg-[#E07A5F] hover:bg-[#D4694D] text-[#FFFDF9] border border-[#C85D41] shadow-[0_3px_0_0_#A6472E] active:shadow-none',
+      'bg-[#6D0808] hover:bg-[#820A0A] text-[#EEEAD7] border border-[#8E1616] shadow-[0_3px_0_0_#180000] active:shadow-none',
     emerald:
-      'bg-[#2A9D8F] hover:bg-[#23877B] text-[#FFFDF9] border border-[#1E7268] shadow-[0_3px_0_0_#16574F] active:shadow-none',
+      'bg-[#757D6F] hover:bg-[#848D7E] text-[#EEEAD7] border border-[#90998A] shadow-[0_3px_0_0_#3E433B] active:shadow-none',
     sky:
-      'bg-[#F4A261] hover:bg-[#E8924F] text-[#1C1917] border border-[#D6803E] shadow-[0_3px_0_0_#B36529] active:shadow-none',
+      'bg-[#380303] hover:bg-[#4A0505] text-[#EEEAD7] border border-[#757D6F]/45 shadow-[0_3px_0_0_#180000] active:shadow-none',
     rose:
-      'bg-[#D9534F] hover:bg-[#C9433F] text-white border border-[#B53632] shadow-[0_3px_0_0_#8F2724] active:shadow-none',
+      'bg-[#6D0808] hover:bg-[#870B0B] text-[#EEEAD7] border border-[#A31B1B] shadow-[0_3px_0_0_#180000] active:shadow-none',
     slate:
-      'bg-[#1C1917] hover:bg-[#292524] text-[#FAF8F5] border border-[#1C1917] shadow-[0_3px_0_0_#0C0A09] active:shadow-none',
+      'bg-[#220000] hover:bg-[#380303] text-[#EEEAD7] border border-[#757D6F]/35 shadow-[0_3px_0_0_#120000] active:shadow-none',
     white:
-      'bg-[#FFFFFF] hover:bg-[#FAF8F5] text-[#1C1917] border border-[#DFD9CE] shadow-[0_3px_0_0_#CFC8BA] active:shadow-none',
+      'bg-[#EEEAD7] hover:bg-[#F7F4E8] text-[#2D0000] border border-[#D4CEB6] shadow-[0_3px_0_0_#757D6F] active:shadow-none',
   };
 
   const sizes = {
