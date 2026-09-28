@@ -195,8 +195,52 @@ async function ensureLocalPosterAndMetadata(
       }
     }
 
-    // Case 2: Newly discovered folder or manual entry without metadata/poster -> auto-query Jikan API
-    const query = anime.folderName || anime.title;
+    // Case 2: Newly discovered folder or manual entry without metadata/poster
+    const query = (anime.folderName || anime.title || '').trim();
+
+    // First check local 950-anime offlineCatalog.json (0ms, works 100% offline!)
+    try {
+      const offlineCatalogPath = path.resolve(__dirname, 'src', 'data', 'offlineCatalog.json');
+      if (fs.existsSync(offlineCatalogPath)) {
+        const catalogList = JSON.parse(fs.readFileSync(offlineCatalogPath, 'utf-8'));
+        const qLow = query.toLowerCase();
+        const foundOffline = catalogList.find(
+          (item: any) =>
+            item.title_english?.toLowerCase() === qLow ||
+            item.title?.toLowerCase() === qLow ||
+            item.title_synonyms?.some((s: string) => s.toLowerCase() === qLow) ||
+            (qLow.length >= 4 &&
+              (item.title_english?.toLowerCase().includes(qLow) ||
+                item.title?.toLowerCase().includes(qLow)))
+        );
+        if (foundOffline) {
+          const canonical = foundOffline.title_english || foundOffline.title;
+          if (anime.title === anime.folderName && canonical) {
+            anime.title = canonical;
+          }
+          anime.malId = anime.malId || foundOffline.mal_id;
+          anime.score = anime.score || foundOffline.score;
+          anime.studio = anime.studio || foundOffline.studio;
+          anime.genres = anime.genres?.length ? anime.genres : foundOffline.genres;
+          if (foundOffline.poster) {
+            const localUrl = await downloadPosterToLocal(
+              anime.id,
+              foundOffline.poster,
+              forceOverwrite
+            );
+            anime.posterUrl = localUrl || anime.posterUrl;
+          }
+          saveState(state);
+          if (anime.posterUrl?.startsWith('/api/poster/')) {
+            return;
+          }
+        }
+      }
+    } catch {
+      // Ignore offline catalog read error
+    }
+
+    // Online fallback via Jikan API
     const res = await fetch(
       `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1&sfw=true`
     );
@@ -524,6 +568,44 @@ function anideckLocalApi(): Plugin {
           }
           res.statusCode = 404;
           res.end('Poster not found');
+          return;
+        }
+
+        // GET /api/cached-poster?id=<mal_id>&url=<remote_url> -> Auto-cache recommendation & catalog posters to local SSD!
+        if (req.url.startsWith('/api/cached-poster') && req.method === 'GET') {
+          ensureDirectories();
+          const u = new URL(req.url, 'http://localhost:5177');
+          const id = (u.searchParams.get('id') || '0').replace(/[^a-z0-9-_]/gi, '_');
+          const remoteUrl = u.searchParams.get('url') || '';
+          const safeName = `mal_${id}.jpg`;
+          const filePath = path.join(POSTERS_DIR, safeName);
+
+          if (fs.existsSync(filePath) && fs.statSync(filePath).size > 500) {
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            fs.createReadStream(filePath).pipe(res);
+            return;
+          }
+
+          if (remoteUrl && /^https?:\/\//i.test(remoteUrl)) {
+            try {
+              const r = await fetch(remoteUrl);
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (buf.length > 500) {
+                  await fs.promises.writeFile(filePath, buf);
+                  res.setHeader('Content-Type', 'image/jpeg');
+                  res.setHeader('Cache-Control', 'public, max-age=31536000');
+                  res.end(buf);
+                  return;
+                }
+              }
+            } catch {
+              // Offline fallback
+            }
+          }
+          res.statusCode = 404;
+          res.end('Offline poster not cached yet');
           return;
         }
 
