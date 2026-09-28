@@ -53,7 +53,8 @@ npm run build
   - **Solution / State**: Target [`launch.vbs`](file:///c:/My%20Project/Anideck/launch.vbs) dialihkan ke `C:\Program Files\Mozilla Firefox\firefox.exe`. Ditambahkan *In-Memory MKV Scan Cache*, *debounced async disk write*, pengecualian `DOKUMENTASI.md` dari `server.watch.ignored`, serta penghentian polling `/api/mpv-status` saat MPV tidak aktif.
 - [x] Transformasi **Professional Cinema Dark UI (Netflix × Crunchyroll × IMDb)** & **100% Local Poster Vault** (28 September 2026):
   - **Problem**: Tampilan krem terang kurang nyaman untuk suasana menonton anime dan langsung membuka detail 1 anime tanpa memilih dari menu katalog terlebih dahulu; selain itu URL poster eksternal membutuhkan koneksi internet.
-  - **Solution / State**: Dirombak ke tema **Cinema Obsidian Dark (`#0B0F19` & `#131B2E`)** dengan aksen *Crunchyroll Orange (`#F97316`)* & *IMDb Gold (`#F5C518`)*. Navigasi dibagi menjadi 2 tahap (**Menu Utama Katalog + Continue Watching Strip** ➔ klik kartu baru masuk **Halaman Detail & Daftar Episode**). Ditambahkan *Auto-Download Poster Engine* di [`vite.config.ts`](file:///c:/My%20Project/Anideck/vite.config.ts) yang menyimpan file poster ke `anime/.posters/<id>.jpg` agar 100% bebas internet selamanya.
+  - **Solution / State**: Dirombak ke tema **Cinema Obsidian Dark (`#0B0F19` & `#131B2E`)** dengan aksen *Crunchyroll Orange (`#F97316`)* & *Soft Warm Amber (`#FDBA74`)*. Navigasi dibagi menjadi 2 tahap (**Menu Utama Katalog + Continue Watching Strip** ➔ klik kartu baru masuk **Halaman Detail & Daftar Episode**). Ditambahkan *Auto-Download Poster Engine* di [`vite.config.ts`](file:///c:/My%20Project/Anideck/vite.config.ts) yang menyimpan file poster ke `anime/.posters/<id>.jpg` agar 100% bebas internet selamanya.
+- [x] Branding: **Soft Minimalist App Icon** (`public/icon.png` + `anideck.ico` di `Anideck.lnk`), penghapusan badge `PRO` di header, dan penghalusan warna aksen dari kuning emas tajam ke *Soft Warm Peach/Cream (`#FDBA74` / `#FFFDF8`)*.
 
 ---
 
@@ -64,7 +65,7 @@ npm run build
 
 | No | Judul Kanonikal | Alias | Posisi Episode | Menit Terakhir | Progres | Catatan |
 | :---: | :--- | :--- | :---: | :---: | :---: | :--- |
-| **1** | **86 - EIGHTY SIX** | Lapan Enam, Eighty Six, 86 | Eps **01** / 26 | **00:00** / 23:40 | 0 Eps Selesai | BD 1080p MKV 10-bit (Sub Indo ASS) — Part 1 & Part 2 |
+| **1** | **86 - EIGHTY SIX** | Lapan Enam, Eighty Six, 86 | Eps **12** / 26 | **13:34** / 23:41 | 0 Eps Selesai | BD 1080p MKV 10-bit (Sub Indo ASS) — Part 1 & Part 2 |
 
 ### 🏆 2. Riwayat Tamat (Completed)
 
