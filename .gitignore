@@ -1,0 +1,32 @@
+# Dependencies & Build
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Local Anime Vault & Heavy Video Archives (NEVER COMMIT)
+anime/
+.watch_later/
+*.mkv
+*.mp4
+*.avi
+*.ass
+*.srt
+*.rar
+*.zip
+*.7z
+*.part
+
+# Local Runtime State
+anideck-state.json
+
+# Editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
