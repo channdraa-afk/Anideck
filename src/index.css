@@ -4,28 +4,28 @@
 
 @layer base {
   body {
-    background-color: #FFFDF8;
-    color: #1E293B;
+    background-color: #0B0F19;
+    color: #F8FAFC;
     font-family: 'Nunito', sans-serif;
   }
 }
 
-/* Custom warm tactile scrollbar */
+/* Professional dark cinema scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #F1EFEA;
+  background: #0B0F19;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: #1E293B;
   border-radius: 9999px;
-  border: 2px solid #F1EFEA;
+  border: 2px solid #0B0F19;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+  background: #334155;
 }

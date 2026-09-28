@@ -23,6 +23,9 @@ import {
   Trash2,
   Sparkles,
   X,
+  ArrowLeft,
+  LayoutGrid,
+  HardDrive,
 } from 'lucide-react';
 import { TactileButton } from './components/TactileButton';
 import { sound } from './lib/sound';
@@ -37,8 +40,10 @@ function formatTime(sec: number): string {
 
 export const App: React.FC = () => {
   const [animes, setAnimes] = useState<AnimeEntry[]>([]);
-  const [selectedId, setSelectedId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'watching' | 'completed' | 'plan' | 'on_hold'>('watching');
+  // Starts at null -> Opens Main Catalog Menu first (like Netflix / Crunchyroll / IMDb)!
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'watching' | 'completed' | 'plan' | 'on_hold'>('all');
+  const [catalogSearch, setCatalogSearch] = useState<string>('');
   const [selectedPart, setSelectedPart] = useState<string>('ALL');
   const [liveMpv, setLiveMpv] = useState<LiveMpvState>({
     active: false,
@@ -85,17 +90,12 @@ export const App: React.FC = () => {
       const data = await res.json();
       if (data.animes) {
         setAnimes(data.animes);
-        setSelectedId((prev) => {
-          if (prev && data.animes.some((a: AnimeEntry) => a.id === prev)) return prev;
-          const firstWatching = data.animes.find((a: AnimeEntry) => a.status === 'watching');
-          return firstWatching ? firstWatching.id : data.animes[0]?.id || '';
-        });
       }
       if (data.liveMpv) {
         setLiveMpv(data.liveMpv);
       }
     } catch {
-      // Fallback if offline
+      // Offline fallback
     } finally {
       setLoading(false);
     }
@@ -103,6 +103,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchLibrary();
+    // Refresh once after 2.5s on initial boot in case background poster download just completed
+    const t = setTimeout(() => fetchLibrary(), 2500);
+    return () => clearTimeout(t);
   }, [fetchLibrary]);
 
   // Poll live MPV status ONLY when MPV is actively playing
@@ -140,7 +143,7 @@ export const App: React.FC = () => {
   }, [liveMpv.active, fetchLibrary]);
 
   const selectedAnime = useMemo(
-    () => animes.find((a) => a.id === selectedId) || animes[0] || null,
+    () => (selectedId ? animes.find((a) => a.id === selectedId) || null : null),
     [animes, selectedId]
   );
 
@@ -154,8 +157,7 @@ export const App: React.FC = () => {
 
   const parts = useMemo(() => {
     if (!selectedAnime?.localFiles?.length) return [];
-    const unique = Array.from(new Set(selectedAnime.localFiles.map((f) => f.part)));
-    return unique;
+    return Array.from(new Set(selectedAnime.localFiles.map((f) => f.part)));
   }, [selectedAnime]);
 
   const filteredEpisodes = useMemo(() => {
@@ -169,13 +171,25 @@ export const App: React.FC = () => {
       const exists = prev.some((a) => a.id === updated.id);
       return exists ? prev.map((a) => (a.id === updated.id ? updated : a)) : [updated, ...prev];
     });
-    await fetch('/api/update-anime', {
+    const res = await fetch('/api/update-anime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     });
+    try {
+      const data = await res.json();
+      if (data.posterUrl && data.posterUrl !== updated.posterUrl) {
+        setAnimes((prev) =>
+          prev.map((a) => (a.id === updated.id ? { ...a, posterUrl: data.posterUrl } : a))
+        );
+      }
+    } catch {
+      // Ignore
+    }
     if (!silent) {
-      showNotice(`Tersimpan: ${updated.title} • Eps ${updated.currentEpisodeLabel} (${formatTime(updated.currentSeconds)})`);
+      showNotice(
+        `Tersimpan: ${updated.title} • Eps ${updated.currentEpisodeLabel} (${formatTime(updated.currentSeconds)})`
+      );
     }
   };
 
@@ -246,27 +260,31 @@ export const App: React.FC = () => {
     const files = selectedAnime.localFiles || [];
     if (files.length > 0) {
       const currIdx = files.findIndex((f) => f.episodeLabel === selectedAnime.currentEpisodeLabel);
-      const nextIdx = Math.min(files.length - 1, Math.max(0, (currIdx === -1 ? 0 : currIdx) + delta));
+      const nextIdx = Math.min(
+        files.length - 1,
+        Math.max(0, (currIdx === -1 ? 0 : currIdx) + delta)
+      );
       const nextFile = files[nextIdx];
       const savedSec = selectedAnime.episodeProgress?.[nextFile.episodeLabel]?.seconds || 0;
-      const updated: AnimeEntry = {
+      saveAnimeUpdate({
         ...selectedAnime,
         currentEpisode: nextFile.episodeNum,
         currentEpisodeLabel: nextFile.episodeLabel,
         currentSeconds: savedSec,
-      };
-      saveAnimeUpdate(updated);
+      });
     } else {
-      const nextEp = Math.max(1, Math.min(selectedAnime.totalEpisodes || 999, Math.floor(selectedAnime.currentEpisode) + delta));
+      const nextEp = Math.max(
+        1,
+        Math.min(selectedAnime.totalEpisodes || 999, Math.floor(selectedAnime.currentEpisode) + delta)
+      );
       const label = String(nextEp).padStart(2, '0');
       const savedSec = selectedAnime.episodeProgress?.[label]?.seconds || 0;
-      const updated: AnimeEntry = {
+      saveAnimeUpdate({
         ...selectedAnime,
         currentEpisode: nextEp,
         currentEpisodeLabel: label,
         currentSeconds: savedSec,
-      };
-      saveAnimeUpdate(updated);
+      });
     }
   };
 
@@ -277,7 +295,6 @@ export const App: React.FC = () => {
       ? anime.watchedEpisodes.filter((e) => e !== epLabel)
       : [...anime.watchedEpisodes, epLabel];
 
-    // If marking watched, advance to next episode automatically if it matches current
     let nextEpLabel = anime.currentEpisodeLabel;
     let nextEpNum = anime.currentEpisode;
     let nextSeconds = anime.currentSeconds;
@@ -336,14 +353,15 @@ export const App: React.FC = () => {
       notes: completeReview || completingAnime.notes,
       completedAt: new Date().toISOString().slice(0, 10),
       currentEpisode: completingAnime.totalEpisodes || completingAnime.currentEpisode,
-      currentEpisodeLabel: String(completingAnime.totalEpisodes || completingAnime.currentEpisode).padStart(2, '0'),
+      currentEpisodeLabel: String(
+        completingAnime.totalEpisodes || completingAnime.currentEpisode
+      ).padStart(2, '0'),
       currentSeconds: 0,
       watchedEpisodes: Array.from(new Set(allLabels)),
     };
 
     await saveAnimeUpdate(updated);
     setCompletingAnime(null);
-    setActiveTab('completed');
     showNotice(`🏆 Selamat! "${updated.title}" resmi masuk Riwayat Tamat!`);
   };
 
@@ -367,13 +385,12 @@ export const App: React.FC = () => {
       const data = await res.json();
       setJikanResults(data.data || []);
     } catch {
-      showNotice('Gagal menghubungi Jikan API. Kamu tetap bisa tambah manual!');
+      showNotice('Sedang offline — kamu tetap bisa klik Simpan Manual!');
     } finally {
       setSearchingMal(false);
     }
   };
 
-  // Anti-Duplicate Guard check
   const checkDuplicate = useCallback(
     (title: string, malId?: number): AnimeEntry | undefined => {
       const clean = title.toLowerCase().trim();
@@ -430,8 +447,6 @@ export const App: React.FC = () => {
     };
 
     await saveAnimeUpdate(entry);
-    setSelectedId(entry.id);
-    setActiveTab(newStatus);
     setShowAddModal(false);
     setSearchQuery('');
     setJikanResults([]);
@@ -465,14 +480,16 @@ export const App: React.FC = () => {
       episodeProgress: {},
     };
     await saveAnimeUpdate(entry);
-    setSelectedId(entry.id);
-    setActiveTab(newStatus);
     setShowAddModal(false);
     setSearchQuery('');
   };
 
   const handleDeleteAnime = async (anime: AnimeEntry) => {
-    if (!window.confirm(`Hapus catatan "${anime.title}" dari memori Anideck? (File video .mkv tidak akan dihapus)`)) {
+    if (
+      !window.confirm(
+        `Hapus catatan "${anime.title}" dari memori Anideck? (File video .mkv tidak akan dihapus)`
+      )
+    ) {
       return;
     }
     await fetch('/api/delete-anime', {
@@ -480,6 +497,7 @@ export const App: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: anime.id }),
     });
+    setSelectedId(null);
     fetchLibrary();
     showNotice(`Catatan "${anime.title}" dihapus.`);
   };
@@ -489,8 +507,14 @@ export const App: React.FC = () => {
     setMuted(!muted);
   };
 
+  const watchingAnimes = useMemo(
+    () => animes.filter((a) => a.status === 'watching'),
+    [animes]
+  );
+
   const tabCounts = useMemo(
     () => ({
+      all: animes.length,
       watching: animes.filter((a) => a.status === 'watching').length,
       completed: animes.filter((a) => a.status === 'completed').length,
       plan: animes.filter((a) => a.status === 'plan').length,
@@ -499,10 +523,17 @@ export const App: React.FC = () => {
     [animes]
   );
 
-  const filteredAnimes = useMemo(
-    () => animes.filter((a) => a.status === activeTab),
-    [animes, activeTab]
-  );
+  const filteredAnimes = useMemo(() => {
+    const byTab = activeTab === 'all' ? animes : animes.filter((a) => a.status === activeTab);
+    if (!catalogSearch.trim()) return byTab;
+    const q = catalogSearch.toLowerCase().trim();
+    return byTab.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.aliases?.some((al) => al.toLowerCase().includes(q)) ||
+        a.studio?.toLowerCase().includes(q)
+    );
+  }, [animes, activeTab, catalogSearch]);
 
   const progressPct = useMemo(() => {
     if (!selectedAnime) return 0;
@@ -511,56 +542,79 @@ export const App: React.FC = () => {
   }, [selectedAnime]);
 
   return (
-    <div className="min-h-screen bg-[#FFFDF8] text-[#1E293B] pb-16">
+    <div className="min-h-screen bg-[#0B0F19] text-[#F8FAFC] pb-20">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl border-2 border-slate-950 shadow-[0_5px_0_0_#020617] flex items-center gap-3 font-extrabold text-sm">
-          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+        <div className="fixed bottom-6 right-6 z-50 bg-[#131B2E] text-white px-5 py-3.5 rounded-2xl border border-[#F97316]/60 shadow-[0_10px_30px_rgba(0,0,0,0.65)] flex items-center gap-3 font-extrabold text-sm">
+          <Sparkles className="w-4 h-4 text-[#F97316] shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* Top Tactile Header */}
-      <header className="sticky top-0 z-30 bg-[#FFFDF8] border-b-2 border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-400 border-2 border-slate-900 shadow-[0_3px_0_0_#0f172a] flex items-center justify-center text-2xl">
-              🎬
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-slate-900">ANIDECK</h1>
-                <span className="px-2.5 py-0.5 text-[11px] font-black uppercase rounded-full bg-emerald-100 text-emerald-900 border-2 border-emerald-700">
-                  MPV Cockpit
-                </span>
+      {/* Top Cinema Navigation Bar (Netflix / Crunchyroll / IMDb Style) */}
+      <header className="sticky top-0 z-30 bg-[#0B0F19] border-b border-slate-800/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => {
+                sound.playClick(true);
+                setSelectedId(null);
+              }}
+              className="flex items-center gap-3 cursor-pointer group text-left"
+              title="Kembali ke Menu Utama Anideck"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#F97316] flex items-center justify-center text-xl shadow-[0_3px_0_0_#9A3412] group-active:translate-y-0.5">
+                🎬
               </div>
-              <p className="text-xs font-bold text-slate-600">
-                Monitor Riwayat Anime, Posisi Episode &amp; Menit Terakhir Chandra
-              </p>
-            </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-black tracking-wider text-white">ANIDECK</span>
+                  <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-widest rounded bg-[#F5C518] text-slate-950">
+                    PRO
+                  </span>
+                </div>
+                <p className="text-[11px] font-bold text-slate-400">
+                  Local Anime Cinema &amp; MPV Progress Tracker
+                </p>
+              </div>
+            </button>
+
+            {selectedId && (
+              <TactileButton
+                variant="slate"
+                size="sm"
+                onClick={() => {
+                  setSelectedId(null);
+                  setSelectedPart('ALL');
+                }}
+              >
+                <ArrowLeft className="w-4 h-4 text-[#F97316]" />
+                <span>Menu Utama</span>
+              </TactileButton>
+            )}
           </div>
 
           {/* Live MPV Telemetry Pill */}
           {liveMpv.active && (
-            <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-emerald-500 text-white border-2 border-emerald-900 shadow-[0_3px_0_0_#064e3b]">
-              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+            <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-xl bg-emerald-950/90 text-emerald-300 border border-emerald-500/50">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               <span className="text-xs font-black tracking-wide">
-                LIVE MPV: Eps {liveMpv.episodeLabel} • {formatTime(liveMpv.seconds)} /{' '}
+                MPV PLAYING: Eps {liveMpv.episodeLabel} • {formatTime(liveMpv.seconds)} /{' '}
                 {formatTime(liveMpv.duration)}
               </span>
             </div>
           )}
 
-          {/* Header Actions */}
+          {/* Right Action Toolbar */}
           <div className="flex items-center gap-2.5">
             <TactileButton
               variant="white"
               size="sm"
               onClick={() => handleOpenExplorer()}
-              title="Buka folder c:\My Project\Anideck\anime di File Explorer"
+              title="Buka folder c:\My Project\Anideck\anime di Windows Explorer"
             >
-              <FolderOpen className="w-4 h-4 text-amber-600" />
-              <span>Buka Folder Anime</span>
+              <FolderOpen className="w-4 h-4 text-[#F97316]" />
+              <span className="hidden md:inline">Folder Anime</span>
             </TactileButton>
 
             <TactileButton
@@ -568,38 +622,371 @@ export const App: React.FC = () => {
               size="sm"
               onClick={() => {
                 fetchLibrary(true);
-                showNotice('🔄 Memindai ulang folder anime/...');
+                showNotice('🔄 Memindai folder anime/ & memeriksa poster lokal...');
               }}
-              title="Scan ulang file .mkv baru"
+              title="Deteksi anime baru di folder anime/ & simpan poster ke lokal"
             >
-              <RefreshCw className="w-4 h-4 text-sky-600" />
-              <span className="hidden sm:inline">Scan MKV</span>
+              <RefreshCw className="w-4 h-4 text-[#F5C518]" />
+              <span className="hidden sm:inline">Scan &amp; Sync</span>
             </TactileButton>
 
             <TactileButton variant="amber" size="sm" onClick={() => setShowAddModal(true)}>
               <Plus className="w-4 h-4" />
-              <span>Tambah / Cari Anime</span>
+              <span>Tambah Anime</span>
             </TactileButton>
 
             <button
               onClick={toggleMute}
-              className="p-2 rounded-xl bg-white border-2 border-slate-800 shadow-[0_3px_0_0_#1e293b] active:translate-y-0.5 active:shadow-none cursor-pointer"
-              title={muted ? 'Nyalakan Efek Suara' : 'Bisukan Efek Suara'}
+              className="p-2 rounded-xl bg-[#131B2E] hover:bg-[#1E293B] border border-slate-700 text-slate-300 cursor-pointer"
+              title={muted ? 'Nyalakan Suara' : 'Bisukan Suara'}
             >
-              {muted ? <VolumeX className="w-4 h-4 text-rose-600" /> : <Volume2 className="w-4 h-4 text-slate-800" />}
+              {muted ? (
+                <VolumeX className="w-4 h-4 text-rose-400" />
+              ) : (
+                <Volume2 className="w-4 h-4 text-slate-200" />
+              )}
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
-        {/* HERO SECTION: FOCUS MONITOR (EPISODE BERAPA & MENIT BERAPA) */}
-        {selectedAnime && (
-          <section className="bg-white rounded-3xl border-2 border-slate-900 shadow-[0_6px_0_0_#1e293b] p-5 sm:p-7">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Poster Column */}
+      {/* =====================================================================
+          LAYAR 1: HOME CATALOG LOBBY (SEPERTI NETFLIX / CRUNCHYROLL / IMDB)
+          Muncul pertama kali saat aplikasi dibuka (selectedId === null)
+         ===================================================================== */}
+      {!selectedAnime ? (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-7 space-y-10">
+          {/* SECTION 1: CONTINUE WATCHING STRIP (NETFLIX / CRUNCHYROLL STYLE) */}
+          {watchingAnimes.length > 0 && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-1.5 h-6 rounded-full bg-[#F97316]" />
+                  <h2 className="text-lg sm:text-xl font-black tracking-tight text-white uppercase">
+                    Lanjutkan Menonton (Continue Watching)
+                  </h2>
+                </div>
+                <span className="text-xs font-bold text-slate-400">
+                  Klik kartu untuk detail &amp; daftar episode, atau klik Play untuk langsung lanjut MPV
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {watchingAnimes.map((anime) => {
+                  const dur = anime.durationSeconds || 1420;
+                  const pct = Math.min(100, Math.round((anime.currentSeconds / dur) * 100));
+                  const isLocalCached = anime.posterUrl?.startsWith('/api/poster/');
+
+                  return (
+                    <div
+                      key={anime.id}
+                      onClick={() => {
+                        sound.playClick(true);
+                        setSelectedId(anime.id);
+                        setSelectedPart('ALL');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="group relative bg-[#131B2E] hover:bg-[#18223A] rounded-2xl border border-slate-800 hover:border-[#F97316]/60 overflow-hidden cursor-pointer transition-transform duration-150 hover:scale-[1.01] flex flex-col justify-between"
+                    >
+                      <div className="p-4 sm:p-5 flex gap-4 sm:gap-5 items-center">
+                        {/* Poster Thumbnail */}
+                        <div className="relative w-24 sm:w-28 aspect-[2/3] rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
+                          {anime.posterUrl ? (
+                            <img
+                              src={anime.posterUrl}
+                              alt={anime.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Film className="w-8 h-8 text-slate-600" />
+                            </div>
+                          )}
+                          {anime.score && (
+                            <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#F5C518] text-slate-950 text-[10px] font-black flex items-center gap-0.5">
+                              ★ {anime.score}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Episode & Timestamp Readout */}
+                        <div className="flex-1 min-w-0 space-y-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-[#F97316]/20 text-[#FB923C] border border-[#F97316]/40 text-[11px] font-black uppercase">
+                              EPS {anime.currentEpisodeLabel} / {anime.totalEpisodes || '?'}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 text-[11px] font-black flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-[#F5C518]" />
+                              Menit {formatTime(anime.currentSeconds)} / {formatTime(dur)}
+                            </span>
+                            {isLocalCached && (
+                              <span
+                                className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50 text-[10px] font-extrabold flex items-center gap-1"
+                                title="Poster sudah tersimpan di SSD lokal (100% Offline Ready)"
+                              >
+                                <HardDrive className="w-3 h-3" />
+                                Offline Ready
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <h3 className="text-lg sm:text-xl font-black text-white truncate group-hover:text-[#F97316]">
+                              {anime.title}
+                            </h3>
+                            <p className="text-xs font-bold text-slate-400 truncate">
+                              {anime.studio || 'Studio'} • {anime.watchedEpisodes.length} dari{' '}
+                              {anime.totalEpisodes || '?'} Episode Selesai
+                            </p>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div
+                            className="flex flex-wrap items-center gap-2.5 pt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {anime.hasLocalFiles && (
+                              <TactileButton
+                                variant="amber"
+                                size="sm"
+                                onClick={() => handlePlayMpv(anime)}
+                              >
+                                <Play className="w-3.5 h-3.5 fill-white" />
+                                <span>
+                                  Resume MPV (Eps {anime.currentEpisodeLabel} •{' '}
+                                  {formatTime(anime.currentSeconds)})
+                                </span>
+                              </TactileButton>
+                            )}
+
+                            <TactileButton
+                              variant="slate"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedId(anime.id);
+                                setSelectedPart('ALL');
+                              }}
+                            >
+                              <span>Pilih Episode &amp; Detail</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </TactileButton>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom Netflix / Crunchyroll Progress Bar */}
+                      <div className="w-full h-1.5 bg-slate-800">
+                        <div
+                          className="h-full bg-[#F97316]"
+                          style={{ width: `${Math.max(4, pct)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* SECTION 2: MAIN ANIME CATALOG & WATCHLIST SHELVES (IMDB / CRUNCHYROLL GRID) */}
+          <section className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <TactileButton
+                  variant={activeTab === 'all' ? 'amber' : 'white'}
+                  size="sm"
+                  onClick={() => setActiveTab('all')}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Semua Koleksi ({tabCounts.all})</span>
+                </TactileButton>
+
+                <TactileButton
+                  variant={activeTab === 'watching' ? 'amber' : 'white'}
+                  size="sm"
+                  onClick={() => setActiveTab('watching')}
+                >
+                  <Tv className="w-3.5 h-3.5" />
+                  <span>Sedang Ditonton ({tabCounts.watching})</span>
+                </TactileButton>
+
+                <TactileButton
+                  variant={activeTab === 'completed' ? 'sky' : 'white'}
+                  size="sm"
+                  onClick={() => setActiveTab('completed')}
+                >
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>Sudah Tamat ({tabCounts.completed})</span>
+                </TactileButton>
+
+                <TactileButton
+                  variant={activeTab === 'plan' ? 'slate' : 'white'}
+                  size="sm"
+                  onClick={() => setActiveTab('plan')}
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>Rencana Tonton ({tabCounts.plan})</span>
+                </TactileButton>
+
+                <TactileButton
+                  variant={activeTab === 'on_hold' ? 'slate' : 'white'}
+                  size="sm"
+                  onClick={() => setActiveTab('on_hold')}
+                >
+                  <PauseCircle className="w-3.5 h-3.5" />
+                  <span>On-Hold ({tabCounts.on_hold})</span>
+                </TactileButton>
+              </div>
+
+              {/* Filter Search Input */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  placeholder="Filter judul di koleksi..."
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-xs font-bold text-white placeholder:text-slate-500 focus:outline-none focus:border-[#F97316]"
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="p-16 text-center font-extrabold text-slate-400">
+                Memuat katalog anime Chandra...
+              </div>
+            ) : filteredAnimes.length === 0 ? (
+              <div className="bg-[#131B2E] rounded-2xl border border-slate-800 p-12 text-center space-y-3">
+                <Film className="w-10 h-10 text-slate-500 mx-auto" />
+                <p className="text-base font-black text-white">
+                  Belum ada anime di kategori ini
+                </p>
+                <p className="text-xs font-bold text-slate-400 max-w-md mx-auto">
+                  Klik tombol <strong>Tambah Anime</strong> di atas untuk mencari dari MyAnimeList
+                  (poster otomatis disimpan ke lokal) atau taruh folder video baru di{' '}
+                  <code>Anideck/anime/</code>.
+                </p>
+                <TactileButton variant="amber" size="md" onClick={() => setShowAddModal(true)}>
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah Anime Baru</span>
+                </TactileButton>
+              </div>
+            ) : (
+              /* Poster Grid (2:3 Cinema Aspect Ratio like Netflix / Crunchyroll / IMDb) */
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+                {filteredAnimes.map((anime) => {
+                  const dur = anime.durationSeconds || 1420;
+                  const pct = Math.min(100, Math.round((anime.currentSeconds / dur) * 100));
+
+                  return (
+                    <div
+                      key={anime.id}
+                      onClick={() => {
+                        sound.playClick(true);
+                        setSelectedId(anime.id);
+                        setSelectedPart('ALL');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="group bg-[#131B2E] rounded-2xl border border-slate-800 hover:border-[#F97316] overflow-hidden cursor-pointer flex flex-col justify-between transition-transform duration-150 hover:scale-[1.02] shadow-[0_8px_20px_rgba(0,0,0,0.4)]"
+                    >
+                      {/* 2:3 Poster Image */}
+                      <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden">
+                        {anime.posterUrl ? (
+                          <img
+                            src={anime.posterUrl}
+                            alt={anime.title}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center">
+                            <Film className="w-10 h-10 text-slate-600 mb-2" />
+                            <span className="text-xs font-black text-slate-400">{anime.title}</span>
+                          </div>
+                        )}
+
+                        {/* Top-Left IMDb Gold Score Badge */}
+                        <div className="absolute top-2.5 left-2.5 flex flex-col gap-1">
+                          {(anime.personalRating || anime.score) && (
+                            <span className="px-2 py-0.5 rounded-md bg-[#F5C518] text-slate-950 text-[11px] font-black shadow">
+                              ★ {anime.personalRating ? `${anime.personalRating}/10` : anime.score}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Top-Right Local MKV Badge */}
+                        <div className="absolute top-2.5 right-2.5">
+                          {anime.hasLocalFiles ? (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950/85 text-emerald-400 border border-emerald-500/40 text-[10px] font-black">
+                              {anime.localFiles?.length} MKV
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950/85 text-slate-300 border border-slate-700 text-[10px] font-bold">
+                              Memory
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Bottom Gradient Status Overlay */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#0B0F19] via-[#0B0F19]/80 to-transparent p-3 pt-10">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-[#F97316] text-white mb-1">
+                            {anime.status === 'watching' && `EPS ${anime.currentEpisodeLabel}`}
+                            {anime.status === 'completed' && '🏆 TAMAT'}
+                            {anime.status === 'plan' && '📋 WATCHLIST'}
+                            {anime.status === 'on_hold' && '⏸️ ON-HOLD'}
+                          </span>
+                          <h3 className="font-black text-sm text-white line-clamp-1 group-hover:text-[#F97316]">
+                            {anime.title}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Telemetry */}
+                      <div className="p-3 bg-[#131B2E] space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                          <span>
+                            {anime.status === 'completed'
+                              ? `${anime.totalEpisodes || '?'} Eps Selesai`
+                              : `Eps ${anime.currentEpisodeLabel} / ${anime.totalEpisodes || '?'}`}
+                          </span>
+                          {anime.status !== 'completed' && (
+                            <span className="text-[#F5C518] font-black">
+                              ⏱️ {formatTime(anime.currentSeconds)}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full ${
+                              anime.status === 'completed' ? 'bg-emerald-500' : 'bg-[#F97316]'
+                            }`}
+                            style={{
+                              width: `${
+                                anime.status === 'completed' ? 100 : Math.max(5, pct)
+                              }%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </main>
+      ) : (
+        /* =====================================================================
+           LAYAR 2: SERIES DETAIL & EPISODE VAULT (SAAT SALAH SATU ANIME DIKLIK)
+           Gaya Halaman Seri Crunchyroll / Netflix / IMDb
+           ===================================================================== */
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
+          <section className="bg-[#131B2E] rounded-3xl border border-slate-800 shadow-[0_12px_35px_rgba(0,0,0,0.5)] p-5 sm:p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+              {/* Left Column: 2:3 Cinema Poster */}
               <div className="lg:col-span-3 flex flex-col items-center sm:items-start">
-                <div className="relative w-44 sm:w-full max-w-[220px] aspect-[3/4] rounded-2xl overflow-hidden border-2 border-slate-900 shadow-[0_4px_0_0_#1e293b] bg-slate-100">
+                <div className="relative w-48 sm:w-full max-w-[230px] aspect-[2/3] rounded-2xl overflow-hidden border border-slate-700 shadow-xl bg-slate-900">
                   {selectedAnime.posterUrl ? (
                     <img
                       src={selectedAnime.posterUrl}
@@ -607,58 +994,70 @@ export const App: React.FC = () => {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-amber-50">
-                      <Film className="w-12 h-12 text-amber-600 mb-2" />
-                      <span className="font-black text-sm text-slate-800">{selectedAnime.title}</span>
+                    <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center">
+                      <Film className="w-12 h-12 text-slate-600 mb-2" />
+                      <span className="font-black text-sm text-slate-300">
+                        {selectedAnime.title}
+                      </span>
                     </div>
                   )}
-                  <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-xl text-[11px] font-black uppercase bg-slate-900/90 text-white border border-white/20">
-                    {selectedAnime.status === 'watching' && '🟢 Sedang Ditonton'}
-                    {selectedAnime.status === 'completed' && '🏆 Sudah Tamat'}
-                    {selectedAnime.status === 'plan' && '📋 Rencana Tonton'}
-                    {selectedAnime.status === 'on_hold' && '⏸️ Ditunda'}
-                  </div>
+                  {selectedAnime.posterUrl?.startsWith('/api/poster/') && (
+                    <div className="absolute bottom-2.5 left-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-slate-950/90 border border-emerald-500/40 text-emerald-400 text-[10px] font-black flex items-center justify-center gap-1">
+                      <HardDrive className="w-3 h-3" />
+                      <span>Tersimpan di Lokal (Offline Ready)</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Main Telemetry & Controls Column */}
-              <div className="lg:col-span-9 space-y-5">
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-slate-200 pb-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
+              {/* Right Column: Series Metadata & Precision Episode/Timestamp Monitor */}
+              <div className="lg:col-span-9 space-y-6">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-5">
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedAnime.score && (
+                        <span className="px-2.5 py-0.5 rounded-md bg-[#F5C518] text-slate-950 text-xs font-black flex items-center gap-1">
+                          <Star className="w-3.5 h-3.5 fill-slate-950" />
+                          IMDb / MAL {selectedAnime.score}
+                        </span>
+                      )}
                       {selectedAnime.studio && (
-                        <span className="px-2.5 py-0.5 rounded-lg bg-sky-100 text-sky-900 border border-sky-400 text-xs font-extrabold">
+                        <span className="px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-200 border border-slate-700 text-xs font-extrabold">
                           {selectedAnime.studio}
                         </span>
                       )}
-                      {selectedAnime.score && (
-                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-400 text-xs font-extrabold flex items-center gap-1">
-                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-600" />
-                          MAL {selectedAnime.score}
+                      {selectedAnime.genres?.map((g) => (
+                        <span
+                          key={g}
+                          className="px-2.5 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-slate-800 text-xs font-bold"
+                        >
+                          {g}
                         </span>
-                      )}
+                      ))}
                       {selectedAnime.hasLocalFiles ? (
-                        <span className="px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-500 text-xs font-extrabold">
-                          💿 {selectedAnime.localFiles?.length} File MKV Tersedia
+                        <span className="px-2.5 py-0.5 rounded-md bg-emerald-950 text-emerald-400 border border-emerald-700/50 text-xs font-extrabold">
+                          💿 {selectedAnime.localFiles?.length} File MKV Lokal
                         </span>
                       ) : (
-                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-300 text-xs font-extrabold">
+                        <span className="px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-400 text-xs font-bold">
                           ☁️ Tersimpan di Memori Riwayat
                         </span>
                       )}
                     </div>
-                    <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+
+                    <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
                       {selectedAnime.title}
                     </h2>
+
                     {selectedAnime.aliases?.length > 0 && (
-                      <p className="text-xs font-bold text-slate-500 mt-0.5">
-                        Alias: {selectedAnime.aliases.join(' • ')}
+                      <p className="text-xs font-bold text-slate-400">
+                        Judul Alternatif: {selectedAnime.aliases.join(' • ')}
                       </p>
                     )}
                   </div>
 
-                  {/* Status Switcher & Complete Button */}
-                  <div className="flex flex-wrap items-center gap-2">
+                  {/* Status Dropdown & Complete Button */}
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <select
                       value={selectedAnime.status}
                       onChange={(e) =>
@@ -667,7 +1066,7 @@ export const App: React.FC = () => {
                           status: e.target.value as AnimeEntry['status'],
                         })
                       }
-                      className="px-3 py-2 rounded-xl bg-amber-50 border-2 border-slate-800 text-xs font-black text-slate-900 cursor-pointer"
+                      className="px-3.5 py-2 rounded-xl bg-[#0B0F19] border border-slate-700 text-xs font-black text-white cursor-pointer"
                     >
                       <option value="watching">🟢 Sedang Ditonton</option>
                       <option value="completed">🏆 Sudah Ditonton (Tamat)</option>
@@ -686,22 +1085,22 @@ export const App: React.FC = () => {
                         }}
                       >
                         <Trophy className="w-4 h-4" />
-                        <span>Tandai Tamat!</span>
+                        <span>Tandai Tamat</span>
                       </TactileButton>
                     )}
                   </div>
                 </div>
 
-                {/* BIG TRACKING READOUT: EPISODE BERAPA & MENIT BERAPA */}
+                {/* DUAL TELEMETRY CARDS: EPISODE BERAPA & MENIT BERAPA */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Box 1: Episode Berapa */}
-                  <div className="p-4 rounded-2xl bg-[#FFFDF8] border-2 border-slate-800 flex flex-col justify-between gap-3">
+                  {/* Card 1: Episode Berapa */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19] border border-slate-800 flex flex-col justify-between gap-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <Tv className="w-4 h-4 text-sky-600" />
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Tv className="w-4 h-4 text-[#F97316]" />
                         SEKARANG DI EPISODE BERAPA?
                       </span>
-                      <span className="text-xs font-extrabold text-emerald-700">
+                      <span className="text-xs font-extrabold text-emerald-400">
                         {selectedAnime.watchedEpisodes.length} / {selectedAnime.totalEpisodes || '?'}{' '}
                         Selesai
                       </span>
@@ -709,7 +1108,7 @@ export const App: React.FC = () => {
 
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-3xl sm:text-4xl font-black text-slate-900">
+                        <span className="text-3xl sm:text-4xl font-black text-white">
                           EPS {selectedAnime.currentEpisodeLabel}
                         </span>
                         <span className="text-sm font-extrabold text-slate-500">
@@ -719,7 +1118,7 @@ export const App: React.FC = () => {
 
                       <div className="flex items-center gap-1.5">
                         <TactileButton
-                          variant="white"
+                          variant="slate"
                           size="sm"
                           onClick={() => handleStepEpisode(-1)}
                           title="Mundur 1 Episode"
@@ -727,7 +1126,7 @@ export const App: React.FC = () => {
                           <ChevronLeft className="w-4 h-4" />
                         </TactileButton>
                         <TactileButton
-                          variant="white"
+                          variant="slate"
                           size="sm"
                           onClick={() => handleStepEpisode(1)}
                           title="Maju 1 Episode"
@@ -755,7 +1154,7 @@ export const App: React.FC = () => {
                             });
                           }
                         }}
-                        className="w-full px-3 py-1.5 rounded-xl bg-white border-2 border-slate-300 text-xs font-extrabold text-slate-800 cursor-pointer"
+                        className="w-full px-3 py-2 rounded-xl bg-[#131B2E] border border-slate-700 text-xs font-bold text-slate-200 cursor-pointer"
                       >
                         {selectedAnime.localFiles.map((f) => (
                           <option key={f.id} value={f.episodeLabel}>
@@ -766,21 +1165,21 @@ export const App: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Box 2: Menit Berapa */}
-                  <div className="p-4 rounded-2xl bg-[#FFFDF8] border-2 border-slate-800 flex flex-col justify-between gap-3">
+                  {/* Card 2: Menit Berapa */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19] border border-slate-800 flex flex-col justify-between gap-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-amber-600" />
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-[#F5C518]" />
                         BERHENTI DI MENIT BERAPA?
                       </span>
-                      <span className="text-xs font-extrabold text-amber-700">
-                        {progressPct}% Durasi Episode
+                      <span className="text-xs font-extrabold text-[#F5C518]">
+                        {progressPct}% Durasi
                       </span>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-3xl sm:text-4xl font-black text-amber-600">
+                        <span className="text-3xl sm:text-4xl font-black text-[#F5C518]">
                           {formatTime(selectedAnime.currentSeconds)}
                         </span>
                         <span className="text-sm font-extrabold text-slate-500">
@@ -796,17 +1195,17 @@ export const App: React.FC = () => {
                           max={180}
                           value={editMin}
                           onChange={(e) => setEditMin(e.target.value)}
-                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-white border-2 border-slate-800"
+                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#131B2E] border border-slate-700 text-white"
                           title="Menit"
                         />
-                        <span className="font-black text-slate-800">:</span>
+                        <span className="font-black text-slate-400">:</span>
                         <input
                           type="number"
                           min={0}
                           max={59}
                           value={editSec}
                           onChange={(e) => setEditSec(e.target.value)}
-                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-white border-2 border-slate-800"
+                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#131B2E] border border-slate-700 text-white"
                           title="Detik"
                         />
                         <TactileButton variant="amber" size="sm" onClick={handleManualTimeSave}>
@@ -844,56 +1243,56 @@ export const App: React.FC = () => {
                         }}
                         onMouseUp={() => saveAnimeUpdate(selectedAnime, true)}
                         onTouchEnd={() => saveAnimeUpdate(selectedAnime, true)}
-                        className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-200 rounded-lg"
+                        className="w-full accent-[#F97316] cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                       />
-                      <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-500">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
                         <button
                           onClick={() =>
                             saveAnimeUpdate({ ...selectedAnime, currentSeconds: 0 })
                           }
-                          className="hover:text-slate-900 underline cursor-pointer"
+                          className="hover:text-white underline cursor-pointer"
                         >
                           Reset 00:00
                         </button>
-                        <span>Geser bar atau ketik menit terakhir jika menonton manual</span>
+                        <span>Otomatis tersimpan dari MPV atau geser manual</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Primary CTA Row: Launch MPV & Quick Actions */}
+                {/* Primary CTA Row */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <div className="flex flex-wrap items-center gap-3">
                     {selectedAnime.hasLocalFiles ? (
                       <>
                         <TactileButton
-                          variant="emerald"
+                          variant="amber"
                           size="lg"
                           onClick={() => handlePlayMpv(selectedAnime)}
                         >
                           <Play className="w-5 h-5 fill-white" />
                           <span>
-                            Lanjut Tonton di MPV (Eps {selectedAnime.currentEpisodeLabel} •{' '}
+                            Putar di MPV (Eps {selectedAnime.currentEpisodeLabel} •{' '}
                             {formatTime(selectedAnime.currentSeconds)})
                           </span>
                         </TactileButton>
 
                         {selectedAnime.currentSeconds > 10 && (
                           <TactileButton
-                            variant="white"
+                            variant="slate"
                             size="md"
                             onClick={() => handlePlayMpv(selectedAnime, undefined, 0)}
                           >
-                            <span>Putar Ulang dari 00:00</span>
+                            <span>Mulai dari 00:00</span>
                           </TactileButton>
                         )}
                       </>
                     ) : (
-                      <div className="px-4 py-2.5 rounded-2xl bg-amber-50 border-2 border-amber-700 text-xs font-extrabold text-amber-900 flex items-center gap-2">
-                        <FolderOpen className="w-4 h-4 shrink-0" />
+                      <div className="px-4 py-2.5 rounded-xl bg-[#0B0F19] border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4 text-[#F97316] shrink-0" />
                         <span>
-                          Anime ini tercatat di memori tontonanmu (tanpa file .mkv lokal di folder{' '}
-                          <code>anime/</code>).
+                          Anime ini tercatat di memori riwayatmu (file <code>.mkv</code> lokal tidak
+                          ada / sudah dihapus).
                         </span>
                       </div>
                     )}
@@ -902,17 +1301,17 @@ export const App: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {selectedAnime.folderName && (
                       <TactileButton
-                        variant="white"
+                        variant="slate"
                         size="sm"
                         onClick={() => handleOpenExplorer(selectedAnime.folderName)}
                       >
-                        <FolderOpen className="w-4 h-4 text-slate-700" />
-                        <span>Folder {selectedAnime.folderName}</span>
+                        <FolderOpen className="w-4 h-4 text-[#F97316]" />
+                        <span>Buka Folder {selectedAnime.folderName}</span>
                       </TactileButton>
                     )}
                     <button
                       onClick={() => handleDeleteAnime(selectedAnime)}
-                      className="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border-2 border-rose-300 cursor-pointer"
+                      className="p-2.5 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 text-rose-400 border border-rose-800/60 cursor-pointer"
                       title="Hapus catatan anime dari memori"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -922,26 +1321,25 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* LOCAL MKV EPISODE GRID (If Local Files Exist) */}
+            {/* EPISODE LIST VAULT (CRUNCHYROLL / NETFLIX EPISODE CARDS) */}
             {selectedAnime.hasLocalFiles && selectedAnime.localFiles && (
-              <div className="mt-7 pt-6 border-t-2 border-slate-200 space-y-4">
+              <div className="mt-8 pt-7 border-t border-slate-800 space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                      <span>🎞️ Daftar Berkas Episode Lokal ({selectedAnime.localFiles.length} MKV)</span>
+                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                      <span>Daftar Episode ({selectedAnime.localFiles.length} Berkas MKV)</span>
                     </h3>
-                    <p className="text-xs font-bold text-slate-500">
-                      Klik <strong>Play MPV</strong> untuk memutar, atau klik{' '}
-                      <strong>Tandai Selesai s/d Sini</strong> untuk melompati episode yang sudah kamu
-                      tonton.
+                    <p className="text-xs font-bold text-slate-400">
+                      Klik <strong>Play MPV</strong> untuk memutar, atau klik ikon{' '}
+                      <strong>✓✓</strong> untuk menandai selesai dari Episode 01 sampai episode
+                      tersebut.
                     </p>
                   </div>
 
-                  {/* Part Filter Tabs (Part 1, Part 2) */}
                   {parts.length > 1 && (
                     <div className="flex items-center gap-2">
                       <TactileButton
-                        variant={selectedPart === 'ALL' ? 'slate' : 'white'}
+                        variant={selectedPart === 'ALL' ? 'amber' : 'white'}
                         size="sm"
                         onClick={() => setSelectedPart('ALL')}
                       >
@@ -950,7 +1348,7 @@ export const App: React.FC = () => {
                       {parts.map((p) => (
                         <TactileButton
                           key={p}
-                          variant={selectedPart === p ? 'slate' : 'white'}
+                          variant={selectedPart === p ? 'amber' : 'white'}
                           size="sm"
                           onClick={() => setSelectedPart(p)}
                         >
@@ -961,7 +1359,7 @@ export const App: React.FC = () => {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredEpisodes.map((ep) => {
                     const isCurrent = selectedAnime.currentEpisodeLabel === ep.episodeLabel;
                     const isWatched = selectedAnime.watchedEpisodes.includes(ep.episodeLabel);
@@ -969,88 +1367,114 @@ export const App: React.FC = () => {
                     const savedSec = isCurrent
                       ? selectedAnime.currentSeconds
                       : epProg?.seconds || 0;
+                    const epDur = epProg?.duration || selectedAnime.durationSeconds || 1420;
+                    const epPct = Math.min(100, Math.round((savedSec / epDur) * 100));
 
                     return (
                       <div
                         key={ep.id}
-                        className={`p-3.5 rounded-2xl border-2 flex flex-col justify-between gap-3 ${
+                        className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition-transform duration-75 ${
                           isCurrent
-                            ? 'bg-amber-50/90 border-slate-900 shadow-[0_4px_0_0_#1e293b]'
+                            ? 'bg-[#18223A] border-[#F97316] ring-1 ring-[#F97316]/50'
                             : isWatched
-                              ? 'bg-emerald-50/50 border-emerald-700/60'
-                              : 'bg-[#FFFDF8] border-slate-300'
+                              ? 'bg-[#0B0F19]/80 border-emerald-800/50'
+                              : 'bg-[#0B0F19] border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-black">
-                                EPS {ep.episodeLabel}
-                              </span>
-                              {ep.part !== 'Main' && (
-                                <span className="px-2 py-0.5 rounded-lg bg-slate-200 text-slate-800 text-[11px] font-extrabold">
-                                  {ep.part}
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-xs font-black ${
+                                    isCurrent
+                                      ? 'bg-[#F97316] text-white'
+                                      : 'bg-slate-800 text-slate-200'
+                                  }`}
+                                >
+                                  EPS {ep.episodeLabel}
                                 </span>
-                              )}
-                              <span className="text-[11px] font-bold text-slate-500">
-                                {ep.sizeMB} MB
-                              </span>
+                                {ep.part !== 'Main' && (
+                                  <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[11px] font-bold">
+                                    {ep.part}
+                                  </span>
+                                )}
+                                <span className="text-[11px] font-bold text-slate-500">
+                                  {ep.sizeMB} MB
+                                </span>
+                              </div>
+                              <p
+                                className="text-xs font-bold text-slate-300 mt-1.5 truncate"
+                                title={ep.fileName}
+                              >
+                                {ep.fileName}
+                              </p>
                             </div>
-                            <p
-                              className="text-xs font-bold text-slate-700 mt-1.5 line-clamp-1"
-                              title={ep.fileName}
-                            >
-                              {ep.fileName}
-                            </p>
+
+                            {isWatched ? (
+                              <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50 text-[11px] font-black flex items-center gap-1 shrink-0">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Selesai
+                              </span>
+                            ) : savedSec > 5 ? (
+                              <span className="px-2 py-0.5 rounded bg-amber-950/90 text-[#F5C518] border border-amber-700/50 text-[11px] font-black flex items-center gap-1 shrink-0">
+                                <Clock className="w-3 h-3" />
+                                {formatTime(savedSec)}
+                              </span>
+                            ) : null}
                           </div>
 
-                          {isWatched ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-emerald-500 text-white text-[11px] font-black flex items-center gap-1 shrink-0">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Selesai
-                            </span>
-                          ) : savedSec > 5 ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-amber-400 text-slate-950 text-[11px] font-black flex items-center gap-1 shrink-0">
-                              <Clock className="w-3 h-3" />
-                              {formatTime(savedSec)}
-                            </span>
-                          ) : null}
+                          <div className="flex items-center justify-between gap-2 pt-1">
+                            <TactileButton
+                              variant={isCurrent ? 'amber' : 'slate'}
+                              size="sm"
+                              onClick={() => handlePlayMpv(selectedAnime, ep, savedSec)}
+                              className="flex-1"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>
+                                {savedSec > 5 ? `Resume ${formatTime(savedSec)}` : 'Play MPV'}
+                              </span>
+                            </TactileButton>
+
+                            <button
+                              onClick={() =>
+                                handleToggleWatchedEpisode(selectedAnime, ep.episodeLabel)
+                              }
+                              className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold cursor-pointer ${
+                                isWatched
+                                  ? 'bg-emerald-600 text-white border-emerald-500'
+                                  : 'bg-[#131B2E] hover:bg-slate-800 text-slate-300 border-slate-700'
+                              }`}
+                              title="Tandai episode ini selesai"
+                            >
+                              ✓
+                            </button>
+
+                            {!isWatched && (
+                              <button
+                                onClick={() =>
+                                  handleMarkWatchedUpTo(selectedAnime, ep.episodeLabel)
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-[#131B2E] hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-extrabold cursor-pointer"
+                                title={`Tandai Episode 01 s/d ${ep.episodeLabel} sudah selesai`}
+                              >
+                                <CheckCheck className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2 pt-1">
-                          <TactileButton
-                            variant={isCurrent ? 'emerald' : 'sky'}
-                            size="sm"
-                            onClick={() => handlePlayMpv(selectedAnime, ep, savedSec)}
-                            className="flex-1"
-                          >
-                            <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>
-                              {savedSec > 5 ? `Lanjut ${formatTime(savedSec)}` : 'Play MPV'}
-                            </span>
-                          </TactileButton>
-
-                          <button
-                            onClick={() => handleToggleWatchedEpisode(selectedAnime, ep.episodeLabel)}
-                            className={`px-2.5 py-1.5 rounded-xl border-2 text-xs font-extrabold cursor-pointer ${
-                              isWatched
-                                ? 'bg-emerald-600 text-white border-emerald-900'
-                                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                        {/* Episode Bottom Progress Strip */}
+                        <div className="w-full h-1 bg-slate-900">
+                          <div
+                            className={`h-full ${
+                              isWatched ? 'bg-emerald-500' : 'bg-[#F97316]'
                             }`}
-                            title="Tandai episode ini sudah ditonton"
-                          >
-                            ✓
-                          </button>
-
-                          {!isWatched && (
-                            <button
-                              onClick={() => handleMarkWatchedUpTo(selectedAnime, ep.episodeLabel)}
-                              className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-slate-700 border-2 border-slate-300 text-xs font-extrabold cursor-pointer"
-                              title={`Tandai Episode 01 sampai ${ep.episodeLabel} sudah selesai ditonton`}
-                            >
-                              <CheckCheck className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                            style={{
+                              width: `${isWatched ? 100 : savedSec > 5 ? Math.max(6, epPct) : 0}%`,
+                            }}
+                          />
                         </div>
                       </div>
                     );
@@ -1059,179 +1483,42 @@ export const App: React.FC = () => {
               </div>
             )}
           </section>
-        )}
+        </main>
+      )}
 
-        {/* WATCHLIST LEDGER TABS (MEMORI PERMANEN TONTONAN CHANDRA) */}
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <TactileButton
-                variant={activeTab === 'watching' ? 'emerald' : 'white'}
-                size="md"
-                onClick={() => setActiveTab('watching')}
-              >
-                <Tv className="w-4 h-4" />
-                <span>Sedang Ditonton ({tabCounts.watching})</span>
-              </TactileButton>
-
-              <TactileButton
-                variant={activeTab === 'completed' ? 'amber' : 'white'}
-                size="md"
-                onClick={() => setActiveTab('completed')}
-              >
-                <Trophy className="w-4 h-4" />
-                <span>Sudah Ditonton / Tamat ({tabCounts.completed})</span>
-              </TactileButton>
-
-              <TactileButton
-                variant={activeTab === 'plan' ? 'sky' : 'white'}
-                size="md"
-                onClick={() => setActiveTab('plan')}
-              >
-                <Bookmark className="w-4 h-4" />
-                <span>Rencana Tonton ({tabCounts.plan})</span>
-              </TactileButton>
-
-              <TactileButton
-                variant={activeTab === 'on_hold' ? 'slate' : 'white'}
-                size="md"
-                onClick={() => setActiveTab('on_hold')}
-              >
-                <PauseCircle className="w-4 h-4" />
-                <span>Ditunda ({tabCounts.on_hold})</span>
-              </TactileButton>
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="p-12 text-center font-extrabold text-slate-500">
-              Memuat memori tontonan Chandra...
-            </div>
-          ) : filteredAnimes.length === 0 ? (
-            <div className="bg-white rounded-3xl border-2 border-slate-800 p-10 text-center space-y-3">
-              <p className="text-lg font-black text-slate-800">
-                Belum ada anime di kategori ini
-              </p>
-              <p className="text-xs font-bold text-slate-500 max-w-md mx-auto">
-                Kamu bisa klik tombol <strong>Tambah / Cari Anime</strong> di kanan atas untuk
-                mencatat anime yang sudah pernah kamu tonton atau taruh folder video baru di{' '}
-                <code>Anideck/anime/</code>.
-              </p>
-              <TactileButton variant="amber" size="md" onClick={() => setShowAddModal(true)}>
-                <Plus className="w-4 h-4" />
-                <span>Tambah Anime ke Daftar</span>
-              </TactileButton>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredAnimes.map((anime) => {
-                const isSelected = selectedAnime?.id === anime.id;
-                return (
-                  <div
-                    key={anime.id}
-                    onClick={() => {
-                      sound.playClick(true);
-                      setSelectedId(anime.id);
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className={`group cursor-pointer bg-white rounded-3xl border-2 p-4 flex gap-4 transition-transform duration-75 active:translate-y-0.5 ${
-                      isSelected
-                        ? 'border-slate-900 shadow-[0_5px_0_0_#1e293b] ring-2 ring-amber-400'
-                        : 'border-slate-800 shadow-[0_4px_0_0_#1e293b] hover:bg-amber-50/30'
-                    }`}
-                  >
-                    <div className="w-20 h-28 rounded-2xl overflow-hidden border-2 border-slate-800 bg-slate-100 shrink-0">
-                      {anime.posterUrl ? (
-                        <img
-                          src={anime.posterUrl}
-                          alt={anime.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-amber-100">
-                          <Film className="w-6 h-6 text-amber-700" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-300">
-                            {anime.hasLocalFiles ? '💿 MKV Lokal' : '☁️ Memori'}
-                          </span>
-                          {anime.personalRating && (
-                            <span className="text-xs font-black text-amber-600 flex items-center gap-0.5">
-                              ⭐ {anime.personalRating}/10
-                            </span>
-                          )}
-                        </div>
-                        <h4 className="font-black text-base text-slate-900 truncate mt-1">
-                          {anime.title}
-                        </h4>
-                        {anime.notes && (
-                          <p className="text-xs font-bold text-slate-500 line-clamp-1 mt-0.5">
-                            {anime.notes}
-                          </p>
-                        )}
-                      </div>
-
-                      {anime.status === 'completed' ? (
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs font-extrabold text-emerald-700">
-                          <span>🏆 Tamat ({anime.totalEpisodes || '?'} Eps)</span>
-                          <span>{anime.completedAt || ''}</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                          <span className="text-xs font-black text-slate-900">
-                            Eps {anime.currentEpisodeLabel} / {anime.totalEpisodes || '?'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-400 text-xs font-black">
-                            ⏱️ {formatTime(anime.currentSeconds)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* MODAL 1: TAMBAH / CARI ANIME (JIKAN MYANIMELIST + ANTI-DUPLICATE GUARD) */}
+      {/* MODAL 1: TAMBAH / CARI ANIME (JIKAN MYANIMELIST + AUTO LOCAL POSTER DOWNLOAD) */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFDF8] w-full max-w-2xl rounded-3xl border-2 border-slate-900 shadow-[0_8px_0_0_#0f172a] p-6 max-h-[90vh] overflow-y-auto space-y-5">
-            <div className="flex items-center justify-between border-b-2 border-slate-200 pb-3">
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div className="bg-[#131B2E] w-full max-w-2xl rounded-3xl border border-slate-700 shadow-2xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-xl font-black text-slate-900">
-                  ➕ Tambah Anime &amp; Catat Riwayat Tontonan
+                <h3 className="text-xl font-black text-white">
+                  ➕ Tambah Anime &amp; Simpan Poster ke Lokal
                 </h3>
-                <p className="text-xs font-bold text-slate-500">
-                  Cari dari database MyAnimeList (otomatis lengkap dengan poster &amp; deteksi
-                  anti-duplikat)
+                <p className="text-xs font-bold text-slate-400">
+                  Begitu ditambahkan, poster otomatis diunduh ke harddisk lokalmu agar seterusnya
+                  bebas internet!
                 </p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="p-2 rounded-xl bg-white border-2 border-slate-800 cursor-pointer"
+                className="p-2 rounded-xl bg-[#0B0F19] border border-slate-700 text-slate-300 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Target Kategori & Posisi Awal */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-white border-2 border-slate-800">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#0B0F19] border border-slate-800">
               <div>
-                <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                  Masuk ke Kategori:
+                <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                  Kategori Status:
                 </label>
                 <select
                   value={newStatus}
-                  onChange={(e) => setNewStatus(e.target.value as 'watching' | 'completed' | 'plan')}
-                  className="w-full px-3 py-2 rounded-xl bg-amber-50 border-2 border-slate-800 text-xs font-black"
+                  onChange={(e) =>
+                    setNewStatus(e.target.value as 'watching' | 'completed' | 'plan')
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#131B2E] border border-slate-700 text-xs font-black text-white"
                 >
                   <option value="watching">🟢 Sedang Ditonton</option>
                   <option value="completed">🏆 Sudah Ditonton (Tamat)</option>
@@ -1242,19 +1529,19 @@ export const App: React.FC = () => {
               {newStatus === 'watching' && (
                 <>
                   <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                      Sekarang di Episode:
+                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                      Episode Saat Ini:
                     </label>
                     <input
                       type="number"
                       min={1}
                       value={newEp}
                       onChange={(e) => setNewEp(parseInt(e.target.value || '1', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-white border-2 border-slate-800 text-sm font-black"
+                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
+                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
                       Menit Terakhir:
                     </label>
                     <input
@@ -1262,7 +1549,7 @@ export const App: React.FC = () => {
                       min={0}
                       value={newMin}
                       onChange={(e) => setNewMin(parseInt(e.target.value || '0', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-white border-2 border-slate-800 text-sm font-black"
+                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
                       placeholder="Contoh: 14"
                     />
                   </div>
@@ -1272,7 +1559,7 @@ export const App: React.FC = () => {
               {newStatus === 'completed' && (
                 <>
                   <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
+                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
                       Rating Pribadi (1-10):
                     </label>
                     <input
@@ -1281,26 +1568,25 @@ export const App: React.FC = () => {
                       max={10}
                       value={newRating}
                       onChange={(e) => setNewRating(parseInt(e.target.value || '9', 10))}
-                      className="w-full px-3 py-1.5 rounded-xl bg-white border-2 border-slate-800 text-sm font-black"
+                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-black text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                      Kesan Singkat:
+                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-1">
+                      Ulasan Singkat:
                     </label>
                     <input
                       type="text"
                       value={newNotes}
                       onChange={(e) => setNewNotes(e.target.value)}
                       placeholder="Masterpiece!"
-                      className="w-full px-3 py-1.5 rounded-xl bg-white border-2 border-slate-800 text-sm font-bold"
+                      className="w-full px-3 py-1.5 rounded-xl bg-[#131B2E] border border-slate-700 text-sm font-bold text-white"
                     />
                   </div>
                 </>
               )}
             </div>
 
-            {/* Search Bar */}
             <form onSubmit={handleSearchMal} className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1308,20 +1594,19 @@ export const App: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Ketik judul anime (misal: Frieren, Jujutsu Kaisen, Cyberpunk)..."
-                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border-2 border-slate-800 text-sm font-extrabold"
+                  placeholder="Cari judul anime di MyAnimeList (misal: Frieren, Solo Leveling)..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#0B0F19] border border-slate-700 text-sm font-extrabold text-white"
                   autoFocus
                 />
               </div>
-              <TactileButton type="submit" variant="sky" size="md" disabled={searchingMal}>
-                {searchingMal ? 'Mencari...' : 'Cari Anime'}
+              <TactileButton type="submit" variant="amber" size="md" disabled={searchingMal}>
+                {searchingMal ? 'Mencari...' : 'Cari MAL'}
               </TactileButton>
-              <TactileButton type="button" variant="white" size="md" onClick={handleAddManual}>
+              <TactileButton type="button" variant="slate" size="md" onClick={handleAddManual}>
                 Simpan Manual
               </TactileButton>
             </form>
 
-            {/* Results List */}
             <div className="space-y-2.5">
               {jikanResults.map((item) => {
                 const canonicalTitle = item.title_english || item.title;
@@ -1329,36 +1614,37 @@ export const App: React.FC = () => {
                 return (
                   <div
                     key={item.mal_id}
-                    className="p-3 rounded-2xl bg-white border-2 border-slate-800 flex items-center justify-between gap-3"
+                    className="p-3 rounded-2xl bg-[#0B0F19] border border-slate-800 flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img
                         src={item.images?.jpg?.image_url}
                         alt={item.title}
-                        className="w-12 h-16 object-cover rounded-xl border border-slate-800 shrink-0"
+                        className="w-12 h-16 object-cover rounded-lg border border-slate-700 shrink-0"
                       />
                       <div className="min-w-0">
-                        <h4 className="font-black text-sm text-slate-900 truncate">
+                        <h4 className="font-black text-sm text-white truncate">
                           {canonicalTitle}
                         </h4>
-                        <p className="text-xs font-bold text-slate-500 truncate">
-                          {item.title} • {item.episodes || '?'} Eps • ⭐ {item.score || '-'}
+                        <p className="text-xs font-bold text-slate-400 truncate">
+                          {item.title} • {item.episodes || '?'} Eps • ★ {item.score || '-'}
                         </p>
                         {existing && (
-                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-500 text-[11px] font-black">
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded bg-amber-950 text-[#F5C518] border border-amber-700/50 text-[11px] font-black">
                             <AlertTriangle className="w-3 h-3" />
-                            Sudah ada di {existing.status === 'completed' ? 'Riwayat Tamat' : 'Daftar Tontonan'}!
+                            Sudah ada di{' '}
+                            {existing.status === 'completed' ? 'Riwayat Tamat' : 'Koleksimu'}!
                           </span>
                         )}
                       </div>
                     </div>
 
                     <TactileButton
-                      variant={existing ? 'white' : 'emerald'}
+                      variant={existing ? 'slate' : 'emerald'}
                       size="sm"
                       onClick={() => handleAddFromJikan(item)}
                     >
-                      {existing ? 'Buka' : '+ Tambahkan'}
+                      {existing ? 'Buka' : '+ Tambah & Cache Poster'}
                     </TactileButton>
                   </div>
                 );
@@ -1370,30 +1656,30 @@ export const App: React.FC = () => {
 
       {/* MODAL 2: TANDAI ANIME TAMAT (COMPLETED) */}
       {completingAnime && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFDF8] w-full max-w-md rounded-3xl border-2 border-slate-900 shadow-[0_8px_0_0_#0f172a] p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div className="bg-[#131B2E] w-full max-w-md rounded-3xl border border-slate-700 shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Trophy className="w-6 h-6 text-amber-500" />
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <Trophy className="w-6 h-6 text-[#F5C518]" />
                 <span>Tamatkan Anime!</span>
               </h3>
               <button
                 onClick={() => setCompletingAnime(null)}
-                className="p-1.5 rounded-xl border-2 border-slate-800 bg-white cursor-pointer"
+                className="p-1.5 rounded-xl border border-slate-700 bg-[#0B0F19] text-slate-300 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-sm font-bold text-slate-600">
+            <p className="text-sm font-bold text-slate-300">
               Pindahkan <strong>{completingAnime.title}</strong> ke daftar{' '}
-              <strong>🏆 Sudah Ditonton (Tamat)</strong>. Meskipun nanti file <code>.mkv</code>-nya
-              kamu hapus dari laptop, riwayat ini akan tetap tersimpan abadi!
+              <strong>🏆 Sudah Tamat</strong>. Poster &amp; riwayat ini tetap tersimpan permanen di
+              lokal meskipun file <code>.mkv</code>-nya kamu hapus!
             </p>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-black uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-black uppercase text-slate-400 mb-1">
                   Rating Pribadimu (1 - 10):
                 </label>
                 <input
@@ -1402,12 +1688,12 @@ export const App: React.FC = () => {
                   max={10}
                   value={completeRating}
                   onChange={(e) => setCompleteRating(parseInt(e.target.value || '9', 10))}
-                  className="w-full px-3.5 py-2 rounded-xl bg-white border-2 border-slate-800 font-black text-base"
+                  className="w-full px-3.5 py-2 rounded-xl bg-[#0B0F19] border border-slate-700 font-black text-base text-[#F5C518]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-black uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-black uppercase text-slate-400 mb-1">
                   Ulasan / Kesan Singkat:
                 </label>
                 <textarea
@@ -1415,13 +1701,13 @@ export const App: React.FC = () => {
                   value={completeReview}
                   onChange={(e) => setCompleteReview(e.target.value)}
                   placeholder="Ceritanya gila banget, ending Part 2 bikin merinding..."
-                  className="w-full px-3.5 py-2 rounded-xl bg-white border-2 border-slate-800 font-bold text-sm"
+                  className="w-full px-3.5 py-2 rounded-xl bg-[#0B0F19] border border-slate-700 font-bold text-sm text-white"
                 />
               </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <TactileButton variant="white" size="md" onClick={() => setCompletingAnime(null)}>
+              <TactileButton variant="slate" size="md" onClick={() => setCompletingAnime(null)}>
                 Batal
               </TactileButton>
               <TactileButton variant="emerald" size="md" onClick={handleCompleteAnimeConfirm}>

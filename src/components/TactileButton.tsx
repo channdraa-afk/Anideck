@@ -8,7 +8,7 @@ interface TactileButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 export const TactileButton: React.FC<TactileButtonProps> = ({
-  variant = 'sky',
+  variant = 'amber',
   size = 'md',
   children,
   onClick,
@@ -23,23 +23,26 @@ export const TactileButton: React.FC<TactileButtonProps> = ({
     }
   };
 
+  // Professional Cinema UI Buttons (Crunchyroll Orange, IMDb Gold, Cinema Slate, Emerald)
   const variants = {
-    emerald:
-      'bg-emerald-500 hover:bg-emerald-600 text-white border-2 border-emerald-800 shadow-[0_4px_0_0_#065f46] active:shadow-none active:translate-y-1',
     amber:
-      'bg-amber-500 hover:bg-amber-600 text-slate-900 border-2 border-amber-800 shadow-[0_4px_0_0_#92400e] active:shadow-none active:translate-y-1',
-    sky: 'bg-sky-600 hover:bg-sky-500 text-white border-2 border-sky-900 shadow-[0_4px_0_0_#0c4a6e] active:shadow-none active:translate-y-1',
-    rose: 'bg-rose-500 hover:bg-rose-600 text-white border-2 border-rose-800 shadow-[0_4px_0_0_#9f1239] active:shadow-none active:translate-y-1',
+      'bg-[#F97316] hover:bg-[#EA580C] text-white border border-[#FB923C]/40 shadow-[0_3px_0_0_#9A3412] active:shadow-none active:translate-y-[2px]',
+    emerald:
+      'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/30 shadow-[0_3px_0_0_#065F46] active:shadow-none active:translate-y-[2px]',
+    sky:
+      'bg-[#F5C518] hover:bg-[#EAB308] text-slate-950 border border-yellow-300/50 shadow-[0_3px_0_0_#A16207] active:shadow-none active:translate-y-[2px]',
+    rose:
+      'bg-rose-600 hover:bg-rose-500 text-white border border-rose-400/30 shadow-[0_3px_0_0_#881337] active:shadow-none active:translate-y-[2px]',
     slate:
-      'bg-slate-800 hover:bg-slate-700 text-white border-2 border-slate-950 shadow-[0_4px_0_0_#0f172a] active:shadow-none active:translate-y-1',
+      'bg-[#1E293B] hover:bg-[#334155] text-slate-100 border border-slate-700 shadow-[0_3px_0_0_#0F172A] active:shadow-none active:translate-y-[2px]',
     white:
-      'bg-white hover:bg-amber-50/60 text-slate-800 border-2 border-slate-300 shadow-[0_4px_0_0_#cbd5e1] active:shadow-none active:translate-y-1',
+      'bg-[#131B2E] hover:bg-[#1E293B] text-slate-200 border border-slate-700/80 shadow-[0_3px_0_0_#090D16] active:shadow-none active:translate-y-[2px]',
   };
 
   const sizes = {
-    sm: 'px-3 py-1.5 text-xs font-extrabold rounded-xl',
-    md: 'px-4 py-2.5 text-sm font-extrabold rounded-2xl',
-    lg: 'px-6 py-3.5 text-base font-black rounded-2xl tracking-wide',
+    sm: 'px-3.5 py-1.5 text-xs font-bold rounded-xl',
+    md: 'px-4 py-2.5 text-sm font-extrabold rounded-xl',
+    lg: 'px-6 py-3.5 text-sm sm:text-base font-black rounded-xl tracking-wide',
   };
 
   return (
