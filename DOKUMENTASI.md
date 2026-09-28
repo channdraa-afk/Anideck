@@ -48,6 +48,9 @@ npm run build
 - [x] Peleburan `Anime Sanctuary` & `Tactilab` Menjadi **Anideck** (28 September 2026):
   - **Problem**: Menonton berkas `.mkv` lokal di MPV tidak memiliki pencatat otomatis untuk posisi episode & menit terakhir (`MM:SS`), serta riwayat anime yang sudah tamat rawan hilang jika berkas `.mkv` dihapus.
   - **Solution / State**: Dibangun aplikasi desktop-web lokal **Anideck** di `c:\My Project\Anideck` dengan folder video terintegrasi di `c:\My Project\Anideck\anime\` (terlindungi `.gitignore`), pelacak detik real-time via MPV Named Pipe IPC, memori riwayat permanen (`anideck-state.json` + sinkronisasi Markdown otomatis), pencarian Jikan MyAnimeList berfitur *Anti-Duplicate Guard*, dan shortcut Desktop `Anideck.lnk`.
+- [x] Optimasi Peluncur Firefox & Eliminasi Lag Klik 0ms (28 September 2026):
+  - **Problem**: Membuka via Microsoft Edge `--app` terasa berat (*lag*), ditambah `fs.statSync` berulang ke 26 berkas `.mkv` serta penulisan sinkron ke `DOKUMENTASI.md` yang memicu Vite HMR reload setiap kali tombol diklik.
+  - **Solution / State**: Target [`launch.vbs`](file:///c:/My%20Project/Anideck/launch.vbs) dialihkan ke `C:\Program Files\Mozilla Firefox\firefox.exe`. Ditambahkan *In-Memory MKV Scan Cache*, *debounced async disk write*, pengecualian `DOKUMENTASI.md` dari `server.watch.ignored`, serta penghentian polling `/api/mpv-status` saat MPV tidak aktif.
 
 ---
 

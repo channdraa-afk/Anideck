@@ -79,9 +79,9 @@ export const App: React.FC = () => {
     }, 3200);
   }, []);
 
-  const fetchLibrary = useCallback(async () => {
+  const fetchLibrary = useCallback(async (forceRescan = false) => {
     try {
-      const res = await fetch('/api/library');
+      const res = await fetch(forceRescan ? '/api/library?rescan=1' : '/api/library');
       const data = await res.json();
       if (data.animes) {
         setAnimes(data.animes);
@@ -105,8 +105,9 @@ export const App: React.FC = () => {
     fetchLibrary();
   }, [fetchLibrary]);
 
-  // Poll live MPV status every 2 seconds
+  // Poll live MPV status ONLY when MPV is actively playing
   useEffect(() => {
+    if (!liveMpv.active) return;
     const interval = setInterval(async () => {
       try {
         const res = await fetch('/api/mpv-status');
@@ -136,7 +137,7 @@ export const App: React.FC = () => {
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [fetchLibrary]);
+  }, [liveMpv.active, fetchLibrary]);
 
   const selectedAnime = useMemo(
     () => animes.find((a) => a.id === selectedId) || animes[0] || null,
@@ -520,7 +521,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Top Tactile Header */}
-      <header className="sticky top-0 z-30 bg-[#FFFDF8]/95 backdrop-blur-sm border-b-2 border-slate-800">
+      <header className="sticky top-0 z-30 bg-[#FFFDF8] border-b-2 border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-amber-400 border-2 border-slate-900 shadow-[0_3px_0_0_#0f172a] flex items-center justify-center text-2xl">
@@ -566,7 +567,7 @@ export const App: React.FC = () => {
               variant="white"
               size="sm"
               onClick={() => {
-                fetchLibrary();
+                fetchLibrary(true);
                 showNotice('🔄 Memindai ulang folder anime/...');
               }}
               title="Scan ulang file .mkv baru"
@@ -823,21 +824,26 @@ export const App: React.FC = () => {
                         value={selectedAnime.currentSeconds}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10);
-                          saveAnimeUpdate(
-                            {
-                              ...selectedAnime,
-                              currentSeconds: val,
-                              episodeProgress: {
-                                ...selectedAnime.episodeProgress,
-                                [selectedAnime.currentEpisodeLabel]: {
-                                  seconds: val,
-                                  duration: selectedAnime.durationSeconds || 1420,
-                                },
-                              },
-                            },
-                            true
+                          setAnimes((prev) =>
+                            prev.map((a) =>
+                              a.id === selectedAnime.id
+                                ? {
+                                    ...a,
+                                    currentSeconds: val,
+                                    episodeProgress: {
+                                      ...a.episodeProgress,
+                                      [a.currentEpisodeLabel]: {
+                                        seconds: val,
+                                        duration: a.durationSeconds || 1420,
+                                      },
+                                    },
+                                  }
+                                : a
+                            )
                           );
                         }}
+                        onMouseUp={() => saveAnimeUpdate(selectedAnime, true)}
+                        onTouchEnd={() => saveAnimeUpdate(selectedAnime, true)}
                         className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-200 rounded-lg"
                       />
                       <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-500">

@@ -99,21 +99,35 @@ const DEFAULT_STATE: { animes: AnimeEntry[] } = {
   ],
 };
 
+// In-Memory RAM Caches for 0ms response time
+let memoryState: { animes: AnimeEntry[] } | null = null;
+const folderScanCache = new Map<string, EpisodeFile[]>();
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
 function loadState(): { animes: AnimeEntry[] } {
+  if (memoryState) return memoryState;
   try {
     if (fs.existsSync(STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      memoryState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      return memoryState!;
     }
   } catch {
     // Fallback to default
   }
-  fs.writeFileSync(STATE_FILE, JSON.stringify(DEFAULT_STATE, null, 2), 'utf-8');
-  return DEFAULT_STATE;
+  memoryState = structuredClone(DEFAULT_STATE);
+  fs.writeFileSync(STATE_FILE, JSON.stringify(memoryState, null, 2), 'utf-8');
+  return memoryState;
 }
 
 function saveState(state: { animes: AnimeEntry[] }) {
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
-  syncMarkdownLedger(state);
+  memoryState = state;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fs.promises
+      .writeFile(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8')
+      .then(() => syncMarkdownLedger(state))
+      .catch(() => {});
+  }, 150);
 }
 
 function formatMMSS(sec: number): string {
@@ -212,13 +226,11 @@ ${markerEnd}`;
   }
 }
 
-// Natural Float Episode Parser (Fixes 18.5.mkv before 18.mkv ASCII bug)
 function parseEpisodeFromFilename(fileName: string): {
   num: number;
   label: string;
 } {
   const withoutExt = fileName.replace(/\.(mkv|mp4|avi)$/i, '');
-  // Look for patterns like " - 18.5", " - 11 END", " - 11.5 OVA", "Ep 05"
   const dashMatch = withoutExt.match(/-\s*(\d+(?:\.\d+)?)\s*(OVA|END|SP|Recap)?$/i);
   if (dashMatch) {
     const num = parseFloat(dashMatch[1]);
@@ -233,9 +245,16 @@ function parseEpisodeFromFilename(fileName: string): {
   return { num: 0, label: withoutExt };
 }
 
-function scanAnimeFolder(folderName: string): EpisodeFile[] {
+function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[] {
+  if (!forceRescan && folderScanCache.has(folderName)) {
+    return folderScanCache.get(folderName)!;
+  }
+
   const targetDir = path.join(ANIME_DIR, folderName);
-  if (!fs.existsSync(targetDir)) return [];
+  if (!fs.existsSync(targetDir)) {
+    folderScanCache.set(folderName, []);
+    return [];
+  }
 
   const results: EpisodeFile[] = [];
 
@@ -263,7 +282,6 @@ function scanAnimeFolder(folderName: string): EpisodeFile[] {
 
   walk(targetDir, 'Main');
 
-  // Sort by Part name then numeric float episodeNum (so 18 comes before 18.5!)
   results.sort((a, b) => {
     if (a.part !== b.part) {
       return a.part.localeCompare(b.part, undefined, { numeric: true });
@@ -271,10 +289,11 @@ function scanAnimeFolder(folderName: string): EpisodeFile[] {
     return a.episodeNum - b.episodeNum;
   });
 
+  folderScanCache.set(folderName, results);
   return results;
 }
 
-function autoDiscoverFolders(state: { animes: AnimeEntry[] }): boolean {
+function autoDiscoverFolders(state: { animes: AnimeEntry[] }, forceRescan = false): boolean {
   if (!fs.existsSync(ANIME_DIR)) {
     fs.mkdirSync(ANIME_DIR, { recursive: true });
   }
@@ -291,7 +310,7 @@ function autoDiscoverFolders(state: { animes: AnimeEntry[] }): boolean {
         a.aliases.some((al) => al.toLowerCase() === d.name.toLowerCase())
     );
     if (!existing) {
-      const files = scanAnimeFolder(d.name);
+      const files = scanAnimeFolder(d.name, forceRescan);
       state.animes.unshift({
         id: d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
         title: d.name,
@@ -348,7 +367,7 @@ function queryMpvProperty(property: string): Promise<number | null> {
         client.destroy();
         resolve(null);
       }
-    }, 600);
+    }, 350);
   });
 }
 
@@ -375,13 +394,18 @@ function anideckLocalApi(): Plugin {
           });
 
         // GET /api/library
-        if (req.url === '/api/library' && req.method === 'GET') {
+        if (req.url.startsWith('/api/library') && req.method === 'GET') {
+          const forceRescan = req.url.includes('rescan=1');
+          if (forceRescan) folderScanCache.clear();
+
           const state = loadState();
-          if (autoDiscoverFolders(state)) {
+          if (forceRescan && autoDiscoverFolders(state, true)) {
             saveState(state);
           }
           const enriched = state.animes.map((anime) => {
-            const files = anime.folderName ? scanAnimeFolder(anime.folderName) : [];
+            const files = anime.folderName
+              ? scanAnimeFolder(anime.folderName, forceRescan)
+              : [];
             return {
               ...anime,
               hasLocalFiles: files.length > 0,
@@ -421,7 +445,6 @@ function anideckLocalApi(): Plugin {
                   seconds: liveMpv.seconds,
                   duration: liveMpv.duration,
                 };
-                // Auto-mark watched when >= 85% of episode duration
                 if (
                   liveMpv.duration > 60 &&
                   liveMpv.seconds / liveMpv.duration >= 0.85 &&
@@ -492,8 +515,7 @@ function anideckLocalApi(): Plugin {
 
           child.on('exit', () => {
             liveMpv.active = false;
-            const finalState = loadState();
-            saveState(finalState);
+            saveState(loadState());
           });
 
           child.unref();
@@ -504,12 +526,13 @@ function anideckLocalApi(): Plugin {
         // POST /api/update-anime
         if (req.url === '/api/update-anime' && req.method === 'POST') {
           const payload = await readBody();
+          const { localFiles, hasLocalFiles, ...cleanPayload } = payload;
           const state = loadState();
-          const idx = state.animes.findIndex((a) => a.id === payload.id);
+          const idx = state.animes.findIndex((a) => a.id === cleanPayload.id);
           if (idx !== -1) {
-            state.animes[idx] = { ...state.animes[idx], ...payload };
+            state.animes[idx] = { ...state.animes[idx], ...cleanPayload };
           } else {
-            state.animes.unshift(payload);
+            state.animes.unshift(cleanPayload);
           }
           saveState(state);
           res.end(JSON.stringify({ ok: true }));
@@ -546,11 +569,14 @@ function anideckLocalApi(): Plugin {
 
 export default defineConfig({
   plugins: [react(), anideckLocalApi()],
+  optimizeDeps: {
+    include: ['lucide-react', 'canvas-confetti'],
+  },
   server: {
     port: 5177,
     strictPort: true,
     watch: {
-      ignored: ['**/anime/**', '**/.watch_later/**', '**/anideck-state.json'],
+      ignored: ['**/anime/**', '**/.watch_later/**', '**/anideck-state.json', '**/DOKUMENTASI.md'],
     },
   },
 });
