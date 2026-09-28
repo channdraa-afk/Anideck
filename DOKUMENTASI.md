@@ -55,6 +55,9 @@ npm run build
   - **Problem**: Tampilan krem terang kurang nyaman untuk suasana menonton anime dan langsung membuka detail 1 anime tanpa memilih dari menu katalog terlebih dahulu; selain itu URL poster eksternal membutuhkan koneksi internet.
   - **Solution / State**: Dirombak ke tema **Cinema Obsidian Dark (`#0B0F19` & `#131B2E`)** dengan aksen *Crunchyroll Orange (`#F97316`)* & *Soft Warm Amber (`#FDBA74`)*. Navigasi dibagi menjadi 2 tahap (**Menu Utama Katalog + Continue Watching Strip** ➔ klik kartu baru masuk **Halaman Detail & Daftar Episode**). Ditambahkan *Auto-Download Poster Engine* di [`vite.config.ts`](file:///c:/My%20Project/Anideck/vite.config.ts) yang menyimpan file poster ke `anime/.posters/<id>.jpg` agar 100% bebas internet selamanya.
 - [x] Branding: **Soft Minimalist App Icon** (`public/icon.png` + `anideck.ico` di `Anideck.lnk`), penghapusan badge `PRO` di header, dan penghalusan warna aksen dari kuning emas tajam ke *Soft Warm Peach/Cream (`#FDBA74` / `#FFFDF8`)*.
+- [x] **Anti-Typo Poster Rematcher** & **Siklus Anime Belum Di-download (Tracker Mode + Smart Fuzzy Folder Linker)** (28 September 2026):
+  - **Problem**: Nama folder yang typo berisiko mengunduh poster MAL yang salah tanpa tombol koreksi, serta anime yang ditambahkan sebelum di-download belum memiliki tombol penyiap folder lokal dan rawan melahirkan kartu duplikat saat foldernya dibuat belakangan.
+  - **Solution / State**: Ditambahkan *Live Debounced Search (400ms)* di modal tambah anime, tombol **`🖼️ Ganti Poster / Pilih Ulang MAL`** (`forceOverwritePoster`) di halaman detail untuk menimpa file `.jpg` lokal kapan saja, tombol **`📂 Siapkan Folder Video di anime/`** (`/api/prepare-folder`) + **`+1 Episode Selesai`** untuk anime tanpa file `.mkv`, serta *Smart Fuzzy Folder Linker* (`isFolderMatchingAnime`) yang otomatis menyatukan folder `.mkv` baru dengan entri *Rencana Tonton* yang sudah ada.
 
 ---
 
