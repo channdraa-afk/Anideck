@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+*.tsbuildinfo
 
 # Local Anime Vault & Heavy Video Archives (NEVER COMMIT)
 anime/
