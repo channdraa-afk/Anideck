@@ -20,7 +20,6 @@ import {
   X,
   Trophy,
   Bookmark,
-  PauseCircle,
   LayoutGrid,
   List,
   ChevronRight,
@@ -30,21 +29,11 @@ import {
   ArrowLeft,
   HardDrive,
   Archive,
-  Shuffle,
   Download,
   Upload,
-  BarChart3,
-  SlidersHorizontal,
+  Minus,
 } from 'lucide-react';
 import { TactileButton } from './components/TactileButton';
-import {
-  searchOfflineCatalog,
-  getOfflineRecommendations,
-  getRandomOfflinePick,
-  OFFLINE_CATALOG_COUNT,
-  POPULAR_GENRES,
-  type RecommendedAnimeItem,
-} from './data/offlineEngine';
 import type {
   AnimeEntry,
   EpisodeFile,
@@ -72,6 +61,26 @@ function normalizeTitle(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// Deduplicate Jikan search results so split parts (Part 2, Cour 2, OVA) don't clutter search
+function deduplicateJikanParts(items: JikanAnimeItem[]): JikanAnimeItem[] {
+  const seenBase = new Set<string>();
+  const clean: JikanAnimeItem[] = [];
+
+  for (const item of items) {
+    const title = item.title_english || item.title || '';
+    const baseKey = title
+      .toLowerCase()
+      .replace(/part\s*\d+|cour\s*\d+|2nd\s*season|3rd\s*season|season\s*\d+|ova|special/gi, '')
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 16);
+
+    if (!baseKey || seenBase.has(baseKey)) continue;
+    seenBase.add(baseKey);
+    clean.push(item);
+  }
+  return clean;
+}
+
 export function App() {
   const [animes, setAnimes] = useState<AnimeEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -79,10 +88,7 @@ export function App() {
     'all'
   );
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
-  const [selectedPart, setSelectedPart] = useState<string>('ALL');
   const [catalogSearch, setCatalogSearch] = useState<string>('');
-  const [selectedGenre, setSelectedGenre] = useState<string>('ALL');
-  const [selectedStudio, setSelectedStudio] = useState<string>('');
   const [sortBy, setSortBy] = useState<'recent' | 'score' | 'title' | 'disk'>('recent');
 
   const [liveMpv, setLiveMpv] = useState<LiveMpvState>({
@@ -103,12 +109,10 @@ export function App() {
   // Scene Bookmark state
   const [bookmarkNote, setBookmarkNote] = useState<string>('');
 
-  // Add / Search / Rematch Poster Modal state
+  // Minimalist Add / Rematch Poster Modal state
   const [showAddModal, setShowAddModal] = useState(false);
   const [rematchingAnime, setRematchingAnime] = useState<AnimeEntry | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [modalGenreFilter, setModalGenreFilter] = useState<string>('ALL');
-  const [modalShortOnly, setModalShortOnly] = useState<boolean>(false);
   const [jikanResults, setJikanResults] = useState<JikanAnimeItem[]>([]);
   const [searchingMal, setSearchingMal] = useState(false);
   const [newStatus, setNewStatus] = useState<'watching' | 'completed' | 'plan'>('plan');
@@ -117,26 +121,28 @@ export function App() {
   const [newRating, setNewRating] = useState<number>(9);
   const [newNotes, setNewNotes] = useState<string>('');
 
-  // Random Pick ("Surprise Me") Modal state
-  const [randomPick, setRandomPick] = useState<RecommendedAnimeItem | null>(null);
-
   // Mark Completed Modal state
   const [completingAnime, setCompletingAnime] = useState<AnimeEntry | null>(null);
   const [completeRating, setCompleteRating] = useState<number>(9);
   const [completeReview, setCompleteReview] = useState<string>('');
   const [deleteFilesOnComplete, setDeleteFilesOnComplete] = useState<boolean>(false);
 
-  // Steam-style Storage Cleaner Modal state
-  const [cleaningAnime, setCleaningAnime] = useState<AnimeEntry | null>(null);
+  // Custom Delete / Move-to-Watched Modal state (ZERO window.confirm!)
+  const [deletingTarget, setDeletingTarget] = useState<AnimeEntry | null>(null);
+  const [deletingEpisode, setDeletingEpisode] = useState<{
+    anime: AnimeEntry;
+    file: EpisodeFile;
+  } | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const fileImportRef = useRef<HTMLInputElement | null>(null);
+  const scrubberRef = useRef<HTMLDivElement | null>(null);
 
   const showNotice = (msg: string) => {
     setToast(msg);
     setTimeout(() => {
       setToast((prev) => (prev === msg ? null : prev));
-    }, 3400);
+    }, 3200);
   };
 
   const fetchLibrary = async (rescan = false) => {
@@ -157,11 +163,11 @@ export function App() {
     fetchLibrary();
   }, []);
 
-  // Keyboard shortcuts: '/' or 'Ctrl+K' to focus catalog search
+  // Keyboard shortcuts: '/' or 'Ctrl+K'
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setShowAddModal(true);
@@ -172,8 +178,8 @@ export function App() {
         setShowAddModal(false);
         setRematchingAnime(null);
         setCompletingAnime(null);
-        setCleaningAnime(null);
-        setRandomPick(null);
+        setDeletingTarget(null);
+        setDeletingEpisode(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -234,18 +240,11 @@ export function App() {
     }
   }, [selectedAnime?.id, selectedAnime?.currentEpisodeLabel, selectedAnime?.currentSeconds]);
 
-  const parts = useMemo(() => {
+  // All episodes unified in a single continuous sequence (not split into pages per part!)
+  const unifiedEpisodes = useMemo(() => {
     if (!selectedAnime?.localFiles) return [];
-    const set = new Set<string>();
-    selectedAnime.localFiles.forEach((f) => set.add(f.part));
-    return Array.from(set);
+    return selectedAnime.localFiles;
   }, [selectedAnime]);
-
-  const filteredEpisodes = useMemo(() => {
-    if (!selectedAnime?.localFiles) return [];
-    if (selectedPart === 'ALL') return selectedAnime.localFiles;
-    return selectedAnime.localFiles.filter((f) => f.part === selectedPart);
-  }, [selectedAnime, selectedPart]);
 
   const saveAnimeUpdate = async (
     updated: AnimeEntry,
@@ -271,7 +270,9 @@ export function App() {
         );
       }
       if (!silent) {
-        showNotice(`Saved "${updated.title}" — Ep ${updated.currentEpisodeLabel} (${formatTime(updated.currentSeconds)})`);
+        showNotice(
+          `Saved "${updated.title}" — Ep ${updated.currentEpisodeLabel} (${formatTime(updated.currentSeconds)})`
+        );
       }
     } catch (e) {
       console.error('Failed to save update:', e);
@@ -291,7 +292,6 @@ export function App() {
     }
   };
 
-  // Helper to detect if current episode is >=85% done and find the next episode
   const getSmartNextEpisode = (anime: AnimeEntry) => {
     const dur = anime.durationSeconds || 1420;
     const isCurrentNearlyDone =
@@ -310,13 +310,6 @@ export function App() {
           file: nextFile,
         };
       }
-    } else if (anime.currentEpisode < (anime.totalEpisodes || 999)) {
-      const nextNum = Math.floor(anime.currentEpisode + 1);
-      return {
-        episodeNum: nextNum,
-        episodeLabel: String(nextNum).padStart(2, '0'),
-        file: undefined,
-      };
     }
     return null;
   };
@@ -359,7 +352,7 @@ export function App() {
       if (data.ok) {
         setLiveMpv(data.liveMpv);
         showNotice(
-          `Launching MPV: ${anime.title} — Ep ${targetFile.episodeLabel} at ${formatTime(startSeconds)}`
+          `Playing in MPV: ${anime.title} — Ep ${targetFile.episodeLabel} (${formatTime(startSeconds)})`
         );
         setAnimes((prev) =>
           prev.map((a) =>
@@ -401,10 +394,32 @@ export function App() {
     saveAnimeUpdate(updated);
   };
 
+  // Custom Interactive Timeline Scrubber (Replaces ugly native <input type="range">)
+  const handleScrubberClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedAnime || !scrubberRef.current) return;
+    const rect = scrubberRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const dur = selectedAnime.durationSeconds || 1420;
+    const newSec = Math.round(ratio * dur);
+
+    const updated: AnimeEntry = {
+      ...selectedAnime,
+      currentSeconds: newSec,
+      episodeProgress: {
+        ...selectedAnime.episodeProgress,
+        [selectedAnime.currentEpisodeLabel]: {
+          seconds: newSec,
+          duration: dur,
+        },
+      },
+    };
+    saveAnimeUpdate(updated);
+  };
+
   const handleAddBookmark = () => {
     if (!selectedAnime) return;
     const labelText =
-      bookmarkNote.trim() || `Highlighted Scene (Ep ${selectedAnime.currentEpisodeLabel})`;
+      bookmarkNote.trim() || `Saved Scene (Ep ${selectedAnime.currentEpisodeLabel})`;
     const newBm: SceneBookmark = {
       id: `bm-${Date.now()}`,
       episodeLabel: selectedAnime.currentEpisodeLabel,
@@ -543,8 +558,8 @@ export function App() {
     });
   };
 
-  // Steam-style Storage Cleaner execution
-  const handleDeleteVideos = async (
+  // Archive to Watched & Clean .MKV Videos (Poster & History 100% Preserved!)
+  const handleArchiveAndCleanVideos = async (
     anime: AnimeEntry,
     mode: 'all' | 'watched_only' | 'single',
     epFile?: EpisodeFile,
@@ -569,35 +584,53 @@ export function App() {
         await fetchLibrary(true);
         if (mode === 'all') {
           showNotice(
-            `Archived "${anime.title}" in Completed — Freed ${formatDiskSize(data.freedMB)} (Poster & Watch Log Preserved)`
+            data.freedMB > 0
+              ? `Moved "${anime.title}" to Watched & freed ${formatDiskSize(data.freedMB)} (Poster kept!)`
+              : `Moved "${anime.title}" to Watched (Poster & record kept!)`
           );
         } else if (mode === 'watched_only') {
           showNotice(
-            `Cleaned ${data.deletedCount} watched .mkv files — Freed ${formatDiskSize(data.freedMB)}`
+            `Cleaned ${data.deletedCount} watched episodes — Freed ${formatDiskSize(data.freedMB)}`
           );
         } else {
           showNotice(
-            `Deleted Ep ${epFile?.episodeLabel} .mkv file — Freed ${formatDiskSize(data.freedMB)}`
+            `Deleted Ep ${epFile?.episodeLabel} video file — Freed ${formatDiskSize(data.freedMB)}`
           );
         }
       }
     } catch {
-      showNotice('Failed to clean video files.');
+      showNotice('Failed to process archive action.');
     } finally {
-      setCleaningAnime(null);
+      setDeletingTarget(null);
+      setDeletingEpisode(null);
     }
+  };
+
+  // Permanent Card Removal (Only when user explicitly chooses Permanent Remove inside our custom modal)
+  const handleConfirmPermanentDelete = async (anime: AnimeEntry) => {
+    await fetch('/api/delete-anime', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: anime.id }),
+    });
+    if (selectedId === anime.id) {
+      setSelectedId(null);
+    }
+    setDeletingTarget(null);
+    fetchLibrary();
+    showNotice(`Permanently removed "${anime.title}".`);
   };
 
   const handleConfirmComplete = async () => {
     if (!completingAnime) return;
     confetti({
-      particleCount: 80,
-      spread: 70,
+      particleCount: 70,
+      spread: 65,
       origin: { y: 0.6 },
     });
 
     if (deleteFilesOnComplete && completingAnime.hasLocalFiles) {
-      await handleDeleteVideos(
+      await handleArchiveAndCleanVideos(
         completingAnime,
         'all',
         undefined,
@@ -649,7 +682,7 @@ export function App() {
         setAnimes((prev) =>
           prev.map((a) => (a.id === anime.id ? { ...a, folderName: data.folderName } : a))
         );
-        showNotice(`Prepared folder "anime/${data.folderName}" — Drop .mkv files & click Scan`);
+        showNotice(`Folder "anime/${data.folderName}" ready — Drop .mkv files & click Sync`);
       }
     } catch {
       showNotice('Failed to prepare folder.');
@@ -670,7 +703,7 @@ export function App() {
     a.download = `anideck-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showNotice('Exported portable Anideck backup (.json).');
+    showNotice('Exported Anideck backup (.json).');
   };
 
   const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -692,7 +725,7 @@ export function App() {
       const data = await res.json();
       if (data.ok) {
         await fetchLibrary(true);
-        showNotice(`Restored ${data.count} anime records from backup.`);
+        showNotice(`Restored ${data.count} anime records.`);
       }
     } catch {
       showNotice('Failed to read backup file.');
@@ -712,35 +745,23 @@ export function App() {
 
   const runMalSearch = async (queryText: string) => {
     const trimmed = queryText.trim();
-    const localMatches = searchOfflineCatalog(trimmed, {
-      genre: modalGenreFilter,
-      maxEpisodes: modalShortOnly ? 13 : undefined,
-      limit: 12,
-    });
-    setJikanResults(localMatches);
-
-    if (trimmed && localMatches.length < 3) {
-      setSearchingMal(true);
-      try {
-        const res = await fetch(
-          `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(trimmed)}&limit=6&sfw=true`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          const onlineList: JikanAnimeItem[] = data.data || [];
-          const seenIds = new Set(localMatches.map((m) => m.mal_id));
-          const merged = [
-            ...localMatches,
-            ...onlineList.filter((o) => !seenIds.has(o.mal_id)),
-          ];
-          setJikanResults(merged.slice(0, 12));
-        }
-      } catch {
-        // 100% offline safe
-      } finally {
-        setSearchingMal(false);
+    if (!trimmed) {
+      setJikanResults([]);
+      return;
+    }
+    setSearchingMal(true);
+    try {
+      const res = await fetch(
+        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(trimmed)}&limit=10&sfw=true`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const rawList: JikanAnimeItem[] = data.data || [];
+        setJikanResults(deduplicateJikanParts(rawList).slice(0, 6));
       }
-    } else {
+    } catch {
+      setJikanResults([]);
+    } finally {
       setSearchingMal(false);
     }
   };
@@ -752,8 +773,16 @@ export function App() {
 
   useEffect(() => {
     if (!showAddModal && !rematchingAnime) return;
-    runMalSearch(searchQuery);
-  }, [searchQuery, modalGenreFilter, modalShortOnly, showAddModal, rematchingAnime]);
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      setJikanResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      runMalSearch(trimmed);
+    }, 380);
+    return () => clearTimeout(timer);
+  }, [searchQuery, showAddModal, rematchingAnime]);
 
   const handleRematchPosterFromJikan = async (item: JikanAnimeItem) => {
     if (!rematchingAnime) return;
@@ -782,9 +811,10 @@ export function App() {
     };
 
     await saveAnimeUpdate(updated, true, true);
-    showNotice(`Updated local poster & metadata for "${canonicalTitle}"`);
+    showNotice(`Updated poster for "${rematchingAnime.title}"`);
     setRematchingAnime(null);
     setSearchQuery('');
+    setJikanResults([]);
   };
 
   const handleAddFromJikan = async (
@@ -801,7 +831,6 @@ export function App() {
       showNotice(`"${dup.title}" is already in your library.`);
       setSelectedId(dup.id);
       setShowAddModal(false);
-      setRandomPick(null);
       return;
     }
 
@@ -827,13 +856,7 @@ export function App() {
       genres: item.genres?.map((g) => g.name).slice(0, 4),
       startedAt: new Date().toISOString().slice(0, 10),
       completedAt: targetStatus === 'completed' ? new Date().toISOString().slice(0, 10) : undefined,
-      notes:
-        newNotes ||
-        (targetStatus === 'plan'
-          ? 'Added to Watchlist'
-          : targetStatus === 'completed'
-            ? 'Completed & logged in Anideck'
-            : ''),
+      notes: newNotes,
       watchedEpisodes:
         targetStatus === 'completed'
           ? Array.from({ length: totalEps }, (_, i) => String(i + 1).padStart(2, '0'))
@@ -842,14 +865,9 @@ export function App() {
     };
 
     await saveAnimeUpdate(entry, Boolean(overrideStatus));
-    if (overrideStatus === 'plan') {
-      showNotice(`Added "${canonicalTitle}" to Watchlist.`);
-    } else if (overrideStatus === 'watching') {
-      showNotice(`Added "${canonicalTitle}" to Currently Watching.`);
-    }
     setShowAddModal(false);
-    setRandomPick(null);
     setSearchQuery('');
+    setJikanResults([]);
   };
 
   const handleAddManual = async () => {
@@ -882,43 +900,22 @@ export function App() {
     setSearchQuery('');
   };
 
-  const handleDeleteAnime = async (anime: AnimeEntry) => {
-    if (
-      !window.confirm(
-        `Remove the card "${anime.title}" from Anideck memory? (To delete .mkv video files while keeping the poster & history in Completed, use "Free Disk Space" instead.)`
-      )
-    ) {
-      return;
-    }
-    await fetch('/api/delete-anime', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: anime.id }),
-    });
-    setSelectedId(null);
-    fetchLibrary();
-    showNotice(`Removed "${anime.title}" from library.`);
-  };
-
   const watchingAnimes = useMemo(
     () => animes.filter((a) => a.status === 'watching'),
     [animes]
   );
 
-  // Featured Hero Spotlight Anime (Netflix / Apple TV+ Billboard)
   const heroAnime = useMemo(
     () => watchingAnimes[0] || animes[0] || null,
     [watchingAnimes, animes]
   );
 
-  // Collector Analytics Telemetry (AniList / Letterboxd / Steam Storage Manager)
   const collectorStats = useMemo(() => {
     let totalWatchedEps = 0;
     let totalDiskMB = 0;
     let totalFiles = 0;
     let ratingSum = 0;
     let ratingCount = 0;
-    const genreCounts = new Map<string, number>();
 
     for (const a of animes) {
       const epsDone =
@@ -933,19 +930,7 @@ export function App() {
         ratingSum += r;
         ratingCount++;
       }
-      for (const g of a.genres || []) {
-        genreCounts.set(g, (genreCounts.get(g) || 0) + 1);
-      }
     }
-
-    let topGenre = 'Sci-Fi & Action';
-    let bestCount = 0;
-    genreCounts.forEach((cnt, g) => {
-      if (cnt > bestCount) {
-        bestCount = cnt;
-        topGenre = g;
-      }
-    });
 
     const hoursWatched = Math.round(((totalWatchedEps * 24) / 60) * 10) / 10;
     const avgScore = ratingCount > 0 ? (ratingSum / ratingCount).toFixed(1) : '-';
@@ -956,15 +941,8 @@ export function App() {
       avgScore,
       totalDiskMB,
       totalFiles,
-      topGenre,
     };
   }, [animes]);
-
-  // 100% Offline Genre & Studio Affinity Recommendations
-  const recommendations = useMemo<RecommendedAnimeItem[]>(
-    () => getOfflineRecommendations(animes, 10, selectedGenre),
-    [animes, selectedGenre]
-  );
 
   const tabCounts = useMemo(
     () => ({
@@ -980,16 +958,6 @@ export function App() {
   const filteredAnimes = useMemo(() => {
     let list = activeTab === 'all' ? [...animes] : animes.filter((a) => a.status === activeTab);
 
-    if (selectedGenre !== 'ALL') {
-      list = list.filter((a) =>
-        a.genres?.some((g) => g.toLowerCase() === selectedGenre.toLowerCase())
-      );
-    }
-    if (selectedStudio.trim()) {
-      list = list.filter(
-        (a) => a.studio?.toLowerCase() === selectedStudio.toLowerCase().trim()
-      );
-    }
     if (catalogSearch.trim()) {
       const q = catalogSearch.toLowerCase().trim();
       list = list.filter(
@@ -1015,7 +983,7 @@ export function App() {
     });
 
     return list;
-  }, [animes, activeTab, catalogSearch, selectedGenre, selectedStudio, sortBy]);
+  }, [animes, activeTab, catalogSearch, sortBy]);
 
   const progressPct = useMemo(() => {
     if (!selectedAnime) return 0;
@@ -1023,22 +991,8 @@ export function App() {
     return Math.min(100, Math.round((selectedAnime.currentSeconds / dur) * 100));
   }, [selectedAnime]);
 
-  const activeAmbientPoster = selectedAnime?.posterUrl || heroAnime?.posterUrl;
-
   return (
-    <div className="relative min-h-screen bg-[#090C15] text-[#F8FAFC] pb-24 selection:bg-[#F97316] selection:text-[#090C15] overflow-x-hidden">
-      {/* APPLE TV+ DYNAMIC AMBIENT POSTER BLEED (60FPS STATIC COMPOSITOR LAYER) */}
-      {activeAmbientPoster && (
-        <div className="pointer-events-none fixed inset-x-0 top-0 h-[520px] z-0 overflow-hidden">
-          <img
-            src={activeAmbientPoster}
-            alt=""
-            className="w-full h-full object-cover blur-3xl opacity-[0.16] scale-125"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#090C15]/40 via-[#090C15]/85 to-[#090C15]" />
-        </div>
-      )}
-
+    <div className="min-h-screen bg-[#F5F3EE] text-[#1C1917] pb-24 selection:bg-[#E07A5F] selection:text-white">
       {/* Hidden File Input for Portable JSON Backup Restore */}
       <input
         ref={fileImportRef}
@@ -1048,83 +1002,70 @@ export function App() {
         onChange={handleImportBackup}
       />
 
-      {/* Toast Notification (Zero Emoji, Crisp Vector Icon) */}
+      {/* Spring-Animated Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#131B2E]/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl border border-[#F97316]/50 shadow-[0_12px_35px_rgba(0,0,0,0.75)] flex items-center gap-3 font-extrabold text-xs sm:text-sm">
-          <Sparkles className="w-4 h-4 text-[#F97316] shrink-0" />
+        <div className="animate-modal-pop fixed bottom-6 right-6 z-50 bg-[#1C1917] text-[#FAF8F5] px-5 py-3.5 rounded-2xl border border-[#E07A5F]/40 shadow-[0_16px_40px_rgba(28,25,23,0.28)] flex items-center gap-3 font-extrabold text-xs sm:text-sm">
+          <Sparkles className="w-4 h-4 text-[#E07A5F] shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* TOP NAVIGATION BAR (APPLE TV+ FROSTED GLASS × LINEAR PRECISION HEADER) */}
-      <header className="sticky top-0 z-30 bg-[#090C15]/85 backdrop-blur-xl border-b border-white/[0.08]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+      {/* MINIMALIST WARM STUDIO HEADER */}
+      <header className="sticky top-0 z-30 bg-[#F5F3EE]/90 backdrop-blur-md border-b border-[#E5E0D8]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => {
-                setSelectedId(null);
-                setSelectedPart('ALL');
-              }}
+              onClick={() => setSelectedId(null)}
               className="flex items-center gap-3 cursor-pointer group text-left"
-              title="Return to Anideck Home"
+              title="Back to Library"
             >
               <img
                 src="/icon.png"
                 alt="Anideck"
-                className="w-9 h-9 rounded-xl ring-1 ring-white/15 shadow-md group-active:translate-y-0.5 object-contain"
+                className="w-9 h-9 rounded-xl shadow-sm group-hover:scale-105 transition-transform duration-200 object-contain"
               />
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-black tracking-wider text-[#FFFDF8]">
-                    ANIDECK
-                  </span>
-                  <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-[10px] font-extrabold text-slate-400 tabular-nums">
-                    <HardDrive className="w-3 h-3 text-emerald-400" />
-                    {OFFLINE_CATALOG_COUNT} Offline DB
-                  </span>
-                </div>
-                <p className="text-[11px] font-bold text-slate-400">
-                  Local Cinema OS &amp; MPV Progress Cockpit
+                <span className="text-lg font-black tracking-tight text-[#1C1917]">
+                  Anideck
+                </span>
+                <p className="text-[11px] font-bold text-[#78716C]">
+                  Personal Anime &amp; MPV Companion
                 </p>
               </div>
             </button>
 
             {selectedId && (
               <TactileButton
-                variant="slate"
+                variant="white"
                 size="sm"
-                onClick={() => {
-                  setSelectedId(null);
-                  setSelectedPart('ALL');
-                }}
+                onClick={() => setSelectedId(null)}
               >
-                <ArrowLeft className="w-3.5 h-3.5 text-[#FDBA74]" />
-                <span>Back to Library</span>
+                <ArrowLeft className="w-3.5 h-3.5 text-[#E07A5F]" />
+                <span>Library</span>
               </TactileButton>
             )}
           </div>
 
-          {/* LIVE MPV REMOTE CONTROL BAR (SPOTIFY DESKTOP / PLEX IPC CONTROLLER) */}
+          {/* LIVE MPV REMOTE CONTROL PILL */}
           {liveMpv.active && (
-            <div className="flex flex-wrap items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-emerald-950/90 text-emerald-200 border border-emerald-500/40 shadow-lg">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <div className="animate-modal-pop flex flex-wrap items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-[#1C1917] text-[#FAF8F5] shadow-md">
+              <span className="w-2 h-2 rounded-full bg-[#2A9D8F] animate-ping" />
               <span className="text-xs font-black tracking-wide tabular-nums mr-1">
-                MPV LIVE • Ep {liveMpv.episodeLabel} • {formatTime(liveMpv.seconds)} /{' '}
-                {formatTime(liveMpv.duration)}
+                MPV • Ep {liveMpv.episodeLabel} • {formatTime(liveMpv.seconds)}
               </span>
 
-              <div className="flex items-center gap-1 border-l border-emerald-700/60 pl-2">
+              <div className="flex items-center gap-1 border-l border-white/15 pl-2">
                 <button
-                  onClick={() => handleSendMpvCommand(['seek', -10, 'relative'], 'MPV Rewind -10s')}
-                  className="p-1 rounded-lg hover:bg-emerald-900/80 text-emerald-200 cursor-pointer"
+                  onClick={() => handleSendMpvCommand(['seek', -10, 'relative'], 'Rewind -10s')}
+                  className="p-1 rounded-lg hover:bg-white/10 text-[#FAF8F5] cursor-pointer"
                   title="Rewind 10s"
                 >
                   <Rewind className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={() => handleSendMpvCommand(['cycle', 'pause'], 'Toggled MPV Pause/Play')}
-                  className="p-1 rounded-lg hover:bg-emerald-900/80 text-emerald-200 cursor-pointer"
-                  title="Pause / Resume MPV"
+                  onClick={() => handleSendMpvCommand(['cycle', 'pause'], 'Toggled Pause/Play')}
+                  className="p-1 rounded-lg hover:bg-white/10 text-[#FAF8F5] cursor-pointer"
+                  title="Pause / Resume"
                 >
                   <Pause className="w-3.5 h-3.5" />
                 </button>
@@ -1132,11 +1073,11 @@ export function App() {
                   onClick={() =>
                     handleSendMpvCommand(['seek', 85, 'relative'], 'Skipped Opening (+85s)')
                   }
-                  className="px-2 py-0.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-[10px] font-black text-emerald-200 cursor-pointer flex items-center gap-1"
-                  title="Skip Anime Opening (+85 seconds)"
+                  className="px-2 py-0.5 rounded-lg bg-[#E07A5F] text-white text-[10px] font-black cursor-pointer flex items-center gap-1"
+                  title="Skip Opening (+85s)"
                 >
                   <FastForward className="w-3 h-3" />
-                  <span>Skip OP +85s</span>
+                  <span>Skip OP</span>
                 </button>
               </div>
             </div>
@@ -1147,21 +1088,11 @@ export function App() {
             <TactileButton
               variant="white"
               size="sm"
-              onClick={() => setRandomPick(getRandomOfflinePick(animes, selectedGenre))}
-              title="Pick a random anime from your Watchlist / 950 Offline Catalog"
-            >
-              <Shuffle className="w-3.5 h-3.5 text-[#FDBA74]" />
-              <span className="hidden lg:inline">Surprise Me</span>
-            </TactileButton>
-
-            <TactileButton
-              variant="white"
-              size="sm"
               onClick={() => handleOpenExplorer()}
-              title="Open c:\My Project\Anideck\anime in Windows Explorer"
+              title="Open local anime/ folder in Windows Explorer"
             >
-              <FolderOpen className="w-3.5 h-3.5 text-[#F97316]" />
-              <span className="hidden md:inline">Anime Folder</span>
+              <FolderOpen className="w-3.5 h-3.5 text-[#E07A5F]" />
+              <span className="hidden sm:inline">Folder</span>
             </TactileButton>
 
             <TactileButton
@@ -1169,19 +1100,18 @@ export function App() {
               size="sm"
               onClick={() => {
                 fetchLibrary(true);
-                showNotice('Scanning anime/ directory & syncing local posters...');
+                showNotice('Synced anime/ folder & local posters.');
               }}
-              title="Rescan local anime/ folder & sync posters"
+              title="Sync newly added folders in anime/"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-[#FDBA74]" />
-              <span className="hidden sm:inline">Scan Disk</span>
+              <RefreshCw className="w-3.5 h-3.5 text-[#2A9D8F]" />
+              <span>Sync</span>
             </TactileButton>
 
             <TactileButton
               variant="amber"
               size="sm"
               onClick={() => setShowAddModal(true)}
-              title="Search 950 Offline Catalog or add Watchlist (Ctrl+K)"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Anime</span>
@@ -1191,137 +1121,93 @@ export function App() {
       </header>
 
       {/* =====================================================================
-          SCREEN 1: HOME CATALOG LOBBY (NETFLIX BILLBOARD × ANILIST × STEAM LIBRARY)
+          SCREEN 1: MINIMALIST HOME LIBRARY (WARM STONE CANVAS + ESPRESSO HERO)
          ===================================================================== */}
       {!selectedAnime ? (
-        <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-9">
-          {/* 1. NETFLIX / APPLE TV+ HERO BILLBOARD SPOTLIGHT */}
+        <main
+          key="home-screen"
+          className="animate-page-enter max-w-6xl mx-auto px-4 sm:px-6 pt-7 space-y-9"
+        >
+          {/* 1. CONTRASTING WARM ESPRESSO SPOTLIGHT STAGE ("NOW WATCHING") */}
           {heroAnime && (
-            <section className="relative rounded-3xl bg-[#111624]/90 border border-white/[0.08] shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden">
-              {heroAnime.posterUrl && (
-                <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                  <img
-                    src={heroAnime.posterUrl}
-                    alt=""
-                    className="w-full h-full object-cover blur-2xl opacity-15 scale-110"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-r from-[#0B0F19] via-[#0B0F19]/90 to-[#0B0F19]/60" />
-                </div>
-              )}
-
-              <div className="relative p-5 sm:p-8 flex flex-col md:flex-row items-center gap-6 sm:gap-8">
-                {/* 2:3 Poster Frame with Letterboxd 1px Inner Glass Ring */}
+            <section className="rounded-3xl bg-[#1C1917] text-[#FAF8F5] shadow-[0_20px_50px_-12px_rgba(28,25,23,0.25)] p-6 sm:p-8 transition-transform duration-300">
+              <div className="flex flex-col md:flex-row items-center gap-6 sm:gap-8">
+                {/* 2:3 Poster Frame */}
                 <div
-                  onClick={() => {
-                    setSelectedId(heroAnime.id);
-                    setSelectedPart('ALL');
-                  }}
-                  className="relative w-36 sm:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-slate-900 ring-1 ring-inset ring-white/15 shadow-2xl shrink-0 cursor-pointer group"
+                  onClick={() => setSelectedId(heroAnime.id)}
+                  className="poster-card-spring relative w-36 sm:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-[#292524] ring-1 ring-white/15 shadow-xl shrink-0 cursor-pointer group"
                 >
                   {heroAnime.posterUrl ? (
                     <img
                       src={heroAnime.posterUrl}
                       alt={heroAnime.title}
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      className="poster-img-zoom w-full h-full object-cover"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <Film className="w-10 h-10 text-slate-600" />
+                      <Film className="w-10 h-10 text-stone-500" />
                     </div>
                   )}
                 </div>
 
-                {/* Billboard Editorial Copy & Telemetry */}
+                {/* Spotlight Copy & Progress */}
                 <div className="flex-1 min-w-0 space-y-4 text-center md:text-left">
                   <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F97316]/15 text-[#FB923C] border border-[#F97316]/30 text-[11px] font-black uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#F97316]" />
-                      {heroAnime.status === 'watching' ? 'Continue Watching' : 'Featured Series'}
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E07A5F]/20 text-[#F4A261] text-[11px] font-black uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#E07A5F]" />
+                      {heroAnime.status === 'watching' ? 'Now Watching' : 'Featured Series'}
                     </span>
 
                     {heroAnime.score && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#FDBA74]/15 text-[#FDBA74] border border-[#FDBA74]/30 text-[11px] font-black tabular-nums">
-                        <Star className="w-3 h-3 fill-[#FDBA74]" />
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-[#FAF8F5] text-[11px] font-black tabular-nums">
+                        <Star className="w-3 h-3 fill-[#F4A261] text-[#F4A261]" />
                         {heroAnime.score}
                       </span>
                     )}
 
                     {heroAnime.studio && (
-                      <button
-                        onClick={() =>
-                          setSelectedStudio((prev) =>
-                            prev === heroAnime.studio ? '' : heroAnime.studio || ''
-                          )
-                        }
-                        className="px-2.5 py-1 rounded-md bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/[0.08] text-[11px] font-extrabold cursor-pointer"
-                        title="Filter library by studio"
-                      >
+                      <span className="px-2.5 py-1 rounded-full bg-white/5 text-stone-300 text-[11px] font-bold">
                         {heroAnime.studio}
-                      </button>
+                      </span>
                     )}
 
-                    {heroAnime.hasLocalFiles ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-[11px] font-extrabold tabular-nums">
+                    {heroAnime.hasLocalFiles && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#2A9D8F]/20 text-[#52B788] text-[11px] font-extrabold tabular-nums">
                         <HardDrive className="w-3 h-3" />
-                        {heroAnime.localFiles?.length} MKV • {formatDiskSize(heroAnime.totalDiskMB)}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/[0.05] text-slate-300 border border-white/[0.08] text-[11px] font-bold">
-                        <Archive className="w-3 h-3 text-[#FDBA74]" />
-                        {heroAnime.archivedAt ? 'Archived in Vault' : 'Watchlist Tracker'}
+                        {heroAnime.localFiles?.length} Episodes •{' '}
+                        {formatDiskSize(heroAnime.totalDiskMB)}
                       </span>
                     )}
                   </div>
 
                   <div>
-                    <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                    <h1 className="text-2xl sm:text-4xl font-black text-[#FAF8F5] tracking-tight">
                       {heroAnime.title}
                     </h1>
                     {heroAnime.genres && heroAnime.genres.length > 0 && (
-                      <div className="flex flex-wrap items-center justify-center md:justify-start gap-1.5 mt-2">
-                        {heroAnime.genres.map((g) => (
-                          <button
-                            key={g}
-                            onClick={() =>
-                              setSelectedGenre((prev) => (prev === g ? 'ALL' : g))
-                            }
-                            className="text-xs font-bold text-slate-400 hover:text-[#FDBA74] px-2 py-0.5 rounded bg-white/[0.03] border border-white/[0.06] cursor-pointer"
-                          >
-                            {g}
-                          </button>
-                        ))}
-                      </div>
+                      <p className="text-xs font-bold text-stone-400 mt-1">
+                        {heroAnime.genres.join(' • ')}
+                      </p>
                     )}
                   </div>
 
-                  {/* Episode Scrubber & Time Remaining Readout (Netflix Style) */}
+                  {/* Animated Progress Bar */}
                   <div className="max-w-xl space-y-2">
                     <div className="flex items-center justify-between text-xs font-extrabold tabular-nums">
-                      <span className="text-white">
+                      <span className="text-stone-200">
                         Episode {heroAnime.currentEpisodeLabel}{' '}
-                        <span className="text-slate-400">
+                        <span className="text-stone-400">
                           of {heroAnime.totalEpisodes || '?'}
                         </span>
                       </span>
-                      <span className="text-[#FDBA74]">
+                      <span className="text-[#F4A261]">
                         {formatTime(heroAnime.currentSeconds)} /{' '}
                         {formatTime(heroAnime.durationSeconds || 1420)}
-                        <span className="text-slate-400 ml-2">
-                          (
-                          {Math.max(
-                            1,
-                            Math.ceil(
-                              ((heroAnime.durationSeconds || 1420) - heroAnime.currentSeconds) /
-                                60
-                            )
-                          )}
-                          m left)
-                        </span>
                       </span>
                     </div>
-                    <div className="w-full h-2 rounded-full bg-white/[0.08] overflow-hidden">
+                    <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                       <div
-                        className="h-full bg-[#F97316]"
+                        className="animate-bar-fill h-full bg-[#E07A5F] rounded-full"
                         style={{
                           width: `${Math.min(
                             100,
@@ -1339,7 +1225,7 @@ export function App() {
                     </div>
                   </div>
 
-                  {/* Primary Action Row with Smart Auto-Advance ("Up Next") */}
+                  {/* Action Buttons */}
                   <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 pt-1">
                     {heroAnime.hasLocalFiles ? (
                       <>
@@ -1357,11 +1243,10 @@ export function App() {
                                   <span>Play Next: Ep {smartNext.episodeLabel}</span>
                                 </TactileButton>
                                 <TactileButton
-                                  variant="slate"
+                                  variant="white"
                                   size="md"
                                   onClick={() => handlePlayMpv(heroAnime)}
                                 >
-                                  <Clock className="w-4 h-4 text-[#FDBA74]" />
                                   <span>
                                     Resume Ep {heroAnime.currentEpisodeLabel} (
                                     {formatTime(heroAnime.currentSeconds)})
@@ -1392,29 +1277,25 @@ export function App() {
                         onClick={() => handlePrepareFolder(heroAnime)}
                       >
                         <FolderOpen className="w-4 h-4" />
-                        <span>Prepare Local Video Folder</span>
+                        <span>Prepare Folder in anime/</span>
                       </TactileButton>
                     )}
 
                     <TactileButton
-                      variant="slate"
+                      variant="white"
                       size="md"
-                      onClick={() => {
-                        setSelectedId(heroAnime.id);
-                        setSelectedPart('ALL');
-                      }}
+                      onClick={() => setSelectedId(heroAnime.id)}
                     >
-                      <span>Episodes &amp; Details</span>
+                      <span>Open Episodes</span>
                       <ChevronRight className="w-4 h-4" />
                     </TactileButton>
 
                     <TactileButton
-                      variant="white"
+                      variant="emerald"
                       size="md"
                       onClick={() => handleQuickIncrementEpisode(heroAnime)}
-                      title="Mark current episode watched and advance +1 episode"
                     >
-                      <Check className="w-4 h-4 text-emerald-400" />
+                      <Check className="w-4 h-4" />
                       <span>+1 Ep</span>
                     </TactileButton>
                   </div>
@@ -1423,123 +1304,59 @@ export function App() {
             </section>
           )}
 
-          {/* 2. COLLECTOR ANALYTICS & STEAM STORAGE TELEMETRY BAR */}
-          <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-            <div className="p-3.5 rounded-2xl bg-[#111624] border border-white/[0.07] flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[#F97316]/10 text-[#F97316]">
-                <Tv className="w-4 h-4" />
+          {/* 2. MINIMALIST SUMMARY BAR */}
+          <section className="flex flex-wrap items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-white border border-[#E5E0D8] shadow-[0_4px_20px_-6px_rgba(28,25,23,0.05)]">
+            <div className="flex flex-wrap items-center gap-6 text-xs font-extrabold">
+              <div className="flex items-center gap-2">
+                <span className="text-[#78716C]">Watch Time:</span>
+                <span className="text-[#1C1917] font-black tabular-nums">
+                  {collectorStats.hoursWatched} hrs ({collectorStats.totalWatchedEps} eps)
+                </span>
               </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Watch Time
-                </p>
-                <p className="text-sm sm:text-base font-black text-white tabular-nums">
-                  {collectorStats.hoursWatched} hrs{' '}
-                  <span className="text-xs font-bold text-slate-400">
-                    ({collectorStats.totalWatchedEps} eps)
-                  </span>
-                </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[#78716C]">Avg Score:</span>
+                <span className="text-[#1C1917] font-black tabular-nums">
+                  {collectorStats.avgScore} / 10
+                </span>
               </div>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-[#111624] border border-white/[0.07] flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-amber-500/10 text-[#FDBA74]">
-                <Star className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Mean Score
-                </p>
-                <p className="text-sm sm:text-base font-black text-white tabular-nums">
-                  {collectorStats.avgScore}{' '}
-                  <span className="text-xs font-bold text-slate-400">/ 10</span>
-                </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[#78716C]">Local Disk:</span>
+                <span className="text-[#2A9D8F] font-black tabular-nums">
+                  {formatDiskSize(collectorStats.totalDiskMB)} ({collectorStats.totalFiles} mkv)
+                </span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-[#111624] border border-white/[0.07] flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400">
-                <HardDrive className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Local SSD Storage
-                </p>
-                <p className="text-sm sm:text-base font-black text-white tabular-nums">
-                  {formatDiskSize(collectorStats.totalDiskMB)}{' '}
-                  <span className="text-xs font-bold text-slate-400">
-                    ({collectorStats.totalFiles} mkv)
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-[#111624] border border-white/[0.07] flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-400">
-                <BarChart3 className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Top Affinity
-                </p>
-                <p className="text-sm font-black text-white truncate">
-                  {collectorStats.topGenre}
-                </p>
-              </div>
-            </div>
-
-            <div className="col-span-2 sm:col-span-4 lg:col-span-1 p-3.5 rounded-2xl bg-[#111624] border border-white/[0.07] flex items-center justify-between lg:justify-center gap-2">
+            <div className="flex items-center gap-2">
               <button
                 onClick={handleExportBackup}
-                className="flex-1 py-1.5 px-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] text-xs font-extrabold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
-                title="Export portable JSON backup of your entire library"
+                className="px-3 py-1.5 rounded-xl bg-[#F5F3EE] hover:bg-[#EAE5DC] text-xs font-extrabold text-[#1C1917] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
               >
-                <Download className="w-3.5 h-3.5 text-[#FDBA74]" />
+                <Download className="w-3.5 h-3.5 text-[#E07A5F]" />
                 <span>Backup</span>
               </button>
               <button
                 onClick={() => fileImportRef.current?.click()}
-                className="flex-1 py-1.5 px-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] text-xs font-extrabold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
-                title="Restore or merge from a JSON backup file"
+                className="px-3 py-1.5 rounded-xl bg-[#F5F3EE] hover:bg-[#EAE5DC] text-xs font-extrabold text-[#1C1917] flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
               >
-                <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                <Upload className="w-3.5 h-3.5 text-[#2A9D8F]" />
                 <span>Restore</span>
               </button>
             </div>
           </section>
 
-          {/* 3. MAIN LIBRARY & WATCHLIST VAULT (LINEAR SEGMENTED CONTROLS × LETTERBOXD GRID) */}
-          <section className="space-y-5">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
-              {/* Segmented Status Tabs (Zero Emoji, Pure Architectural Pills) */}
-              <div className="inline-flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-[#111624] border border-white/[0.07]">
+          {/* 3. LIBRARY NAVIGATION & POSTER GALLERY */}
+          <section className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Clean Segmented Tabs */}
+              <div className="inline-flex flex-wrap items-center gap-1 p-1.5 rounded-2xl bg-[#EAE6DF]">
                 {(
                   [
-                    { id: 'all', label: 'All Library', count: tabCounts.all, dot: 'bg-slate-400' },
-                    {
-                      id: 'watching',
-                      label: 'Watching',
-                      count: tabCounts.watching,
-                      dot: 'bg-[#F97316]',
-                    },
-                    {
-                      id: 'completed',
-                      label: 'Completed / Watched',
-                      count: tabCounts.completed,
-                      dot: 'bg-emerald-400',
-                    },
-                    {
-                      id: 'plan',
-                      label: 'Watchlist',
-                      count: tabCounts.plan,
-                      dot: 'bg-[#FDBA74]',
-                    },
-                    {
-                      id: 'on_hold',
-                      label: 'On Hold',
-                      count: tabCounts.on_hold,
-                      dot: 'bg-sky-400',
-                    },
+                    { id: 'all', label: 'All', count: tabCounts.all },
+                    { id: 'watching', label: 'Watching', count: tabCounts.watching },
+                    { id: 'completed', label: 'Watched', count: tabCounts.completed },
+                    { id: 'plan', label: 'Watchlist', count: tabCounts.plan },
+                    { id: 'on_hold', label: 'On Hold', count: tabCounts.on_hold },
                   ] as const
                 ).map((tab) => {
                   const active = activeTab === tab.id;
@@ -1547,15 +1364,23 @@ export function App() {
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-2 cursor-pointer transition-opacity ${
+                      style={{
+                        transition: 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                      }}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-2 cursor-pointer active:scale-95 ${
                         active
-                          ? 'bg-[#1D263B] text-white border border-white/15 shadow-sm'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? 'bg-white text-[#1C1917] shadow-sm'
+                          : 'text-[#78716C] hover:text-[#1C1917]'
                       }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${tab.dot}`} />
                       <span>{tab.label}</span>
-                      <span className="px-1.5 py-0.2 rounded-md bg-black/30 text-[10px] font-black text-slate-300 tabular-nums">
+                      <span
+                        className={`px-1.5 py-0.2 rounded-md text-[10px] font-black tabular-nums ${
+                          active
+                            ? 'bg-[#E07A5F]/15 text-[#E07A5F]'
+                            : 'bg-black/5 text-[#78716C]'
+                        }`}
+                      >
                         {tab.count}
                       </span>
                     </button>
@@ -1563,48 +1388,36 @@ export function App() {
                 })}
               </div>
 
-              {/* Right Filter, Sort, & View Switcher Bar */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                {selectedStudio && (
-                  <button
-                    onClick={() => setSelectedStudio('')}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#F97316]/15 border border-[#F97316]/40 text-xs font-extrabold text-[#FDBA74] flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <span>Studio: {selectedStudio}</span>
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-
-                <div className="relative flex-1 sm:w-56">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              {/* Search, Sort & View Mode */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 sm:w-52">
+                  <Search className="w-3.5 h-3.5 text-[#78716C] absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     ref={searchInputRef}
                     type="text"
                     value={catalogSearch}
                     onChange={(e) => setCatalogSearch(e.target.value)}
-                    placeholder="Filter library... (Press /)"
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[#111624] border border-white/[0.08] text-xs font-bold text-white placeholder:text-slate-500 focus:outline-none focus:border-[#F97316]"
+                    placeholder="Filter library... (/)"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white border border-[#E5E0D8] text-xs font-bold text-[#1C1917] placeholder:text-[#A8A29E] focus:outline-none focus:border-[#E07A5F]"
                   />
                 </div>
 
-                {/* Sort Segmented Pill */}
-                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#111624] border border-white/[0.08] text-[11px] font-extrabold">
-                  <SlidersHorizontal className="w-3 h-3 text-slate-400 ml-1.5 mr-0.5" />
+                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#EAE6DF] text-[11px] font-extrabold">
                   {(
                     [
                       { id: 'recent', label: 'Recent' },
                       { id: 'score', label: 'Score' },
-                      { id: 'disk', label: 'Disk' },
+                      { id: 'disk', label: 'Size' },
                       { id: 'title', label: 'A-Z' },
                     ] as const
                   ).map((s) => (
                     <button
                       key={s.id}
                       onClick={() => setSortBy(s.id)}
-                      className={`px-2 py-1 rounded-lg cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg cursor-pointer ${
                         sortBy === s.id
-                          ? 'bg-[#1D263B] text-[#FDBA74]'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-white text-[#1C1917] shadow-sm'
+                          : 'text-[#78716C] hover:text-[#1C1917]'
                       }`}
                     >
                       {s.label}
@@ -1612,16 +1425,15 @@ export function App() {
                   ))}
                 </div>
 
-                {/* View Mode Switcher (Poster Grid vs Compact Table) */}
-                <div className="inline-flex items-center p-1 rounded-xl bg-[#111624] border border-white/[0.08]">
+                <div className="inline-flex items-center p-1 rounded-xl bg-[#EAE6DF]">
                   <button
                     onClick={() => setViewMode('grid')}
                     className={`p-1.5 rounded-lg cursor-pointer ${
                       viewMode === 'grid'
-                        ? 'bg-[#1D263B] text-[#FDBA74]'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-white text-[#1C1917] shadow-sm'
+                        : 'text-[#78716C]'
                     }`}
-                    title="Cinema Poster Grid View"
+                    title="Poster Grid"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
@@ -1629,10 +1441,10 @@ export function App() {
                     onClick={() => setViewMode('table')}
                     className={`p-1.5 rounded-lg cursor-pointer ${
                       viewMode === 'table'
-                        ? 'bg-[#1D263B] text-[#FDBA74]'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-white text-[#1C1917] shadow-sm'
+                        : 'text-[#78716C]'
                     }`}
-                    title="Compact Collector Table View"
+                    title="Compact Table"
                   >
                     <List className="w-3.5 h-3.5" />
                   </button>
@@ -1640,211 +1452,153 @@ export function App() {
               </div>
             </div>
 
-            {/* Interactive Genre Filter Chips (Spotify / Max Style) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-              <button
-                onClick={() => setSelectedGenre('ALL')}
-                className={`px-3 py-1 rounded-full text-xs font-extrabold shrink-0 cursor-pointer border ${
-                  selectedGenre === 'ALL'
-                    ? 'bg-[#FFFDF8] text-[#090C15] border-white'
-                    : 'bg-[#111624] text-slate-400 hover:text-white border-white/[0.07]'
-                }`}
-              >
-                All Genres
-              </button>
-              {POPULAR_GENRES.map((genre) => (
-                <button
-                  key={genre}
-                  onClick={() =>
-                    setSelectedGenre((prev) => (prev === genre ? 'ALL' : genre))
-                  }
-                  className={`px-3 py-1 rounded-full text-xs font-extrabold shrink-0 cursor-pointer border ${
-                    selectedGenre === genre
-                      ? 'bg-[#F97316] text-[#090C15] border-[#FDBA74]'
-                      : 'bg-[#111624] text-slate-400 hover:text-white border-white/[0.07]'
-                  }`}
-                >
-                  {genre}
-                </button>
-              ))}
-            </div>
-
             {loading ? (
-              <div className="p-16 text-center font-extrabold text-slate-400">
-                Loading Anideck Library...
+              <div className="p-16 text-center font-extrabold text-[#78716C]">
+                Loading library...
               </div>
             ) : filteredAnimes.length === 0 ? (
-              <div className="bg-[#111624] rounded-3xl border border-white/[0.07] p-12 text-center space-y-3">
-                <Film className="w-10 h-10 text-slate-500 mx-auto" />
-                <p className="text-base font-black text-white">
-                  No anime found in this view
+              <div className="animate-page-enter bg-white rounded-3xl border border-[#E5E0D8] p-12 text-center space-y-3">
+                <Film className="w-10 h-10 text-[#A8A29E] mx-auto" />
+                <p className="text-base font-black text-[#1C1917]">
+                  No anime in this tab yet
                 </p>
-                <p className="text-xs font-bold text-slate-400 max-w-md mx-auto">
-                  Click <strong>Add Anime</strong> to search the 950-anime offline database or place
-                  a video folder inside <code>Anideck/anime/</code>.
+                <p className="text-xs font-bold text-[#78716C] max-w-md mx-auto">
+                  Drop an anime video folder into <code>Anideck/anime/</code> and click{' '}
+                  <strong>Sync</strong>, or click <strong>Add Anime</strong> to add a title to your
+                  Watchlist.
                 </p>
-                <TactileButton variant="amber" size="md" onClick={() => setShowAddModal(true)}>
-                  <Plus className="w-4 h-4" />
-                  <span>Explore 950 Offline Catalog</span>
-                </TactileButton>
               </div>
             ) : viewMode === 'grid' ? (
-              /* VIEW 1: GALLERY-GRADE 2:3 POSTER GRID (LETTERBOXD × CRUNCHYROLL) */
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-                {filteredAnimes.map((anime) => {
+              /* STAGGERED WAVE POSTER GALLERY */
+              <div
+                key={`grid-${activeTab}-${sortBy}`}
+                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5"
+              >
+                {filteredAnimes.map((anime, index) => {
                   const dur = anime.durationSeconds || 1420;
                   const pct = Math.min(100, Math.round((anime.currentSeconds / dur) * 100));
 
                   return (
                     <div
                       key={anime.id}
+                      style={{ animationDelay: `${index * 60}ms` }}
                       onClick={() => {
                         setSelectedId(anime.id);
-                        setSelectedPart('ALL');
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="group bg-[#111624] rounded-2xl border border-white/[0.08] hover:border-[#F97316]/70 overflow-hidden cursor-pointer flex flex-col justify-between transition-transform duration-150 hover:-translate-y-1 shadow-[0_10px_28px_rgba(0,0,0,0.45)]"
+                      className="animate-card-wave poster-card-spring group bg-white rounded-2xl border border-[#E5E0D8] overflow-hidden cursor-pointer flex flex-col justify-between shadow-[0_10px_25px_-8px_rgba(28,25,23,0.08)] hover:shadow-[0_20px_35px_-10px_rgba(28,25,23,0.16)]"
                     >
-                      {/* 2:3 Poster Image with 1px Inner Ring */}
-                      <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden ring-1 ring-inset ring-white/10">
+                      <div className="relative aspect-[2/3] w-full bg-[#EAE6DF] overflow-hidden">
                         {anime.posterUrl ? (
                           <img
                             src={anime.posterUrl}
                             alt={anime.title}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            className="poster-img-zoom w-full h-full object-cover"
                           />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center">
-                            <Film className="w-10 h-10 text-slate-600 mb-2" />
-                            <span className="text-xs font-black text-slate-400">{anime.title}</span>
+                            <Film className="w-10 h-10 text-[#78716C] mb-2" />
+                            <span className="text-xs font-black text-[#1C1917]">{anime.title}</span>
                           </div>
                         )}
 
-                        {/* Top-Left Score Badge */}
-                        <div className="absolute top-2.5 left-2.5 flex items-center gap-1">
-                          {(anime.personalRating || anime.score) && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#090C15]/90 backdrop-blur-md text-[#FDBA74] border border-white/10 text-[11px] font-black tabular-nums">
-                              <Star className="w-3 h-3 fill-[#FDBA74]" />
+                        {/* Top-Left Score Pill */}
+                        {(anime.personalRating || anime.score) && (
+                          <div className="absolute top-2.5 left-2.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#1C1917]/85 backdrop-blur-md text-[#FAF8F5] text-[11px] font-black tabular-nums">
+                              <Star className="w-3 h-3 fill-[#F4A261] text-[#F4A261]" />
                               {anime.personalRating ? `${anime.personalRating}/10` : anime.score}
                             </span>
-                          )}
+                          </div>
+                        )}
+
+                        {/* Top-Right Delete / Move to Watched Trigger */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingTarget(anime);
+                          }}
+                          className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        >
+                          <button
+                            className="p-1.5 rounded-lg bg-[#1C1917]/85 hover:bg-[#D9534F] text-white cursor-pointer shadow"
+                            title="Move to Watched (Keep Poster) or Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
 
-                        {/* Top-Right Storage / Archive Telemetry Pill */}
-                        <div className="absolute top-2.5 right-2.5">
-                          {anime.hasLocalFiles ? (
-                            <span className="px-2 py-0.5 rounded-md bg-[#090C15]/90 backdrop-blur-md text-emerald-400 border border-emerald-500/30 text-[10px] font-black tabular-nums">
-                              {formatDiskSize(anime.totalDiskMB)}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-[#090C15]/90 backdrop-blur-md text-slate-300 border border-white/10 text-[10px] font-bold">
-                              {anime.status === 'completed' ? 'Archived' : 'Tracker'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Hover Quick-Action Overlay (Netflix / AniList Circular Controls) */}
+                        {/* Hover Quick Action Bar */}
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute inset-x-2.5 bottom-14 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-between gap-1.5 bg-[#090C15]/90 backdrop-blur-md p-1.5 rounded-xl border border-white/15"
+                          className="absolute inset-x-2.5 bottom-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-1.5 bg-[#1C1917]/90 backdrop-blur-md p-1.5 rounded-xl"
                         >
                           {anime.hasLocalFiles ? (
                             <button
                               onClick={() => handlePlayMpv(anime)}
-                              className="flex-1 py-1 px-2 rounded-lg bg-[#F97316] text-[#090C15] text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#E07A5F] text-white text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
                             >
                               <Play className="w-3 h-3 fill-current" />
                               <span>Play</span>
                             </button>
                           ) : (
                             <button
-                              onClick={() => {
-                                setSelectedId(anime.id);
-                                setSelectedPart('ALL');
-                              }}
-                              className="flex-1 py-1 px-2 rounded-lg bg-white/10 text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                              onClick={() => setSelectedId(anime.id)}
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-white/15 text-white text-[11px] font-extrabold cursor-pointer"
                             >
-                              <span>Open</span>
+                              Details
                             </button>
                           )}
 
                           {anime.status !== 'completed' && (
                             <button
                               onClick={(e) => handleQuickIncrementEpisode(anime, e)}
-                              className="py-1 px-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-black cursor-pointer tabular-nums"
-                              title="Advance +1 Episode"
+                              className="py-1.5 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-black cursor-pointer tabular-nums"
                             >
                               +1 Ep
                             </button>
                           )}
-
-                          {anime.hasLocalFiles && (
-                            <button
-                              onClick={() => setCleaningAnime(anime)}
-                              className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 cursor-pointer"
-                              title="Free Up Disk Space (Delete .mkv • Keep Poster & Watched Record)"
-                            >
-                              <HardDrive className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Bottom Gradient Title & Status Pill */}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#090C15] via-[#090C15]/85 to-transparent p-3 pt-10">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                anime.status === 'watching'
-                                  ? 'bg-[#F97316]'
-                                  : anime.status === 'completed'
-                                    ? 'bg-emerald-400'
-                                    : anime.status === 'plan'
-                                      ? 'bg-[#FDBA74]'
-                                      : 'bg-sky-400'
-                              }`}
-                            />
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">
-                              {anime.status === 'watching' && `EP ${anime.currentEpisodeLabel}`}
-                              {anime.status === 'completed' &&
-                                (anime.hasLocalFiles ? 'COMPLETED' : 'WATCHED • ARCHIVED')}
-                              {anime.status === 'plan' && 'WATCHLIST'}
-                              {anime.status === 'on_hold' && 'ON HOLD'}
-                            </span>
-                          </div>
-                          <h3 className="font-black text-sm text-white line-clamp-1 group-hover:text-[#FDBA74]">
-                            {anime.title}
-                          </h3>
                         </div>
                       </div>
 
-                      {/* Card Footer Telemetry */}
-                      <div className="p-3 bg-[#111624] space-y-2">
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-400 tabular-nums">
-                          <span>
-                            {anime.status === 'completed'
-                              ? `${anime.totalEpisodes || '?'} Eps Watched`
-                              : `Ep ${anime.currentEpisodeLabel} / ${anime.totalEpisodes || '?'}`}
-                          </span>
-                          {anime.status !== 'completed' ? (
-                            <span className="text-[#FDBA74] font-black">
-                              {formatTime(anime.currentSeconds)}
+                      {/* Minimalist Card Footer */}
+                      <div className="p-3.5 space-y-2 bg-white">
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span
+                              className={`text-[10px] font-black uppercase tracking-wider ${
+                                anime.status === 'completed'
+                                  ? 'text-[#2A9D8F]'
+                                  : anime.status === 'watching'
+                                    ? 'text-[#E07A5F]'
+                                    : 'text-[#78716C]'
+                              }`}
+                            >
+                              {anime.status === 'completed'
+                                ? 'Watched'
+                                : anime.status === 'watching'
+                                  ? `Ep ${anime.currentEpisodeLabel} of ${anime.totalEpisodes || '?'}`
+                                  : 'Watchlist'}
                             </span>
-                          ) : (
-                            <span className="text-emerald-400 font-extrabold text-[11px]">
-                              {anime.completedAt || 'Completed'}
+                            <span className="text-[11px] font-extrabold text-[#78716C] tabular-nums">
+                              {anime.status === 'completed'
+                                ? `${anime.totalEpisodes || '?'} Eps`
+                                : formatTime(anime.currentSeconds)}
                             </span>
-                          )}
+                          </div>
+                          <h3 className="font-black text-sm text-[#1C1917] line-clamp-1 group-hover:text-[#E07A5F]">
+                            {anime.title}
+                          </h3>
                         </div>
 
-                        {/* Signature Crunchyroll 2px Progress Bar */}
-                        <div className="w-full h-1 rounded-full bg-white/[0.07] overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-[#EAE6DF] overflow-hidden">
                           <div
-                            className={`h-full ${
-                              anime.status === 'completed' ? 'bg-emerald-400' : 'bg-[#F97316]'
+                            className={`animate-bar-fill h-full rounded-full ${
+                              anime.status === 'completed' ? 'bg-[#2A9D8F]' : 'bg-[#E07A5F]'
                             }`}
                             style={{
                               width: `${
-                                anime.status === 'completed' ? 100 : Math.max(5, pct)
+                                anime.status === 'completed' ? 100 : Math.max(6, pct)
                               }%`,
                             }}
                           />
@@ -1855,85 +1609,75 @@ export function App() {
                 })}
               </div>
             ) : (
-              /* VIEW 2: COMPACT COLLECTOR TABLE VIEW (LINEAR × ANILIST LEDGER) */
-              <div className="bg-[#111624] rounded-2xl border border-white/[0.08] overflow-hidden">
+              /* COMPACT TABLE VIEW */
+              <div className="animate-page-enter bg-white rounded-2xl border border-[#E5E0D8] overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-white/[0.08] text-[10px] font-black uppercase tracking-wider text-slate-400 bg-[#0D111C]">
+                      <tr className="border-b border-[#E5E0D8] text-[10px] font-black uppercase tracking-wider text-[#78716C] bg-[#FAF8F5]">
                         <th className="py-3 px-4">Series</th>
                         <th className="py-3 px-3">Status</th>
                         <th className="py-3 px-3">Progress</th>
-                        <th className="py-3 px-3">Timestamp</th>
                         <th className="py-3 px-3">Score</th>
                         <th className="py-3 px-3">Storage</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.06] text-xs font-bold">
-                      {filteredAnimes.map((anime) => (
+                    <tbody className="divide-y divide-[#EFECE6] text-xs font-bold">
+                      {filteredAnimes.map((anime, index) => (
                         <tr
                           key={anime.id}
-                          onClick={() => {
-                            setSelectedId(anime.id);
-                            setSelectedPart('ALL');
-                          }}
-                          className="hover:bg-white/[0.03] cursor-pointer"
+                          style={{ animationDelay: `${index * 40}ms` }}
+                          onClick={() => setSelectedId(anime.id)}
+                          className="animate-card-wave hover:bg-[#FAF8F5] cursor-pointer"
                         >
-                          <td className="py-2.5 px-4">
+                          <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               <img
                                 src={anime.posterUrl}
                                 alt={anime.title}
-                                className="w-9 h-12 rounded-lg object-cover bg-slate-900 ring-1 ring-white/10 shrink-0"
+                                className="w-9 h-12 rounded-lg object-cover bg-[#EAE6DF] shrink-0"
                               />
                               <div className="min-w-0">
-                                <p className="font-black text-white truncate max-w-xs">
+                                <p className="font-black text-[#1C1917] truncate max-w-xs">
                                   {anime.title}
                                 </p>
-                                <p className="text-[11px] text-slate-400 truncate">
-                                  {anime.studio || 'Studio'} •{' '}
-                                  {anime.genres?.slice(0, 2).join(', ') || 'Anime'}
+                                <p className="text-[11px] text-[#78716C] truncate">
+                                  {anime.studio || 'Anime'}
                                 </p>
                               </div>
                             </div>
                           </td>
-                          <td className="py-2.5 px-3">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-[11px] font-extrabold text-slate-200 uppercase">
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  anime.status === 'watching'
-                                    ? 'bg-[#F97316]'
-                                    : anime.status === 'completed'
-                                      ? 'bg-emerald-400'
-                                      : 'bg-[#FDBA74]'
-                                }`}
-                              />
-                              {anime.status}
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                anime.status === 'completed'
+                                  ? 'bg-[#2A9D8F]/15 text-[#2A9D8F]'
+                                  : anime.status === 'watching'
+                                    ? 'bg-[#E07A5F]/15 text-[#E07A5F]'
+                                    : 'bg-[#EAE6DF] text-[#78716C]'
+                              }`}
+                            >
+                              {anime.status === 'completed' ? 'Watched' : anime.status}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 tabular-nums text-white font-black">
+                          <td className="py-3 px-3 tabular-nums text-[#1C1917] font-black">
                             Ep {anime.currentEpisodeLabel} / {anime.totalEpisodes || '?'}
                           </td>
-                          <td className="py-2.5 px-3 tabular-nums text-[#FDBA74] font-black">
-                            {anime.status === 'completed'
-                              ? 'Done'
-                              : formatTime(anime.currentSeconds)}
-                          </td>
-                          <td className="py-2.5 px-3 tabular-nums text-white">
+                          <td className="py-3 px-3 tabular-nums text-[#1C1917]">
                             {anime.personalRating || anime.score || '-'}
                           </td>
-                          <td className="py-2.5 px-3 tabular-nums">
+                          <td className="py-3 px-3 tabular-nums">
                             {anime.hasLocalFiles ? (
-                              <span className="text-emerald-400">
+                              <span className="text-[#2A9D8F] font-extrabold">
                                 {formatDiskSize(anime.totalDiskMB)}
                               </span>
                             ) : (
-                              <span className="text-slate-500">Archived</span>
+                              <span className="text-[#A8A29E]">Poster Saved</span>
                             )}
                           </td>
                           <td
-                            className="py-2.5 px-4 text-right"
+                            className="py-3 px-4 text-right"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="inline-flex items-center gap-1.5">
@@ -1947,24 +1691,13 @@ export function App() {
                                   <span>Play</span>
                                 </TactileButton>
                               )}
-                              {anime.status !== 'completed' && (
-                                <TactileButton
-                                  variant="white"
-                                  size="sm"
-                                  onClick={(e) => handleQuickIncrementEpisode(anime, e)}
-                                >
-                                  <span>+1 Ep</span>
-                                </TactileButton>
-                              )}
-                              {anime.hasLocalFiles && (
-                                <button
-                                  onClick={() => setCleaningAnime(anime)}
-                                  className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 cursor-pointer"
-                                  title="Free Up Disk Space (Keep Poster in Watched)"
-                                >
-                                  <HardDrive className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                              <button
+                                onClick={() => setDeletingTarget(anime)}
+                                className="p-2 rounded-xl bg-[#F5F3EE] hover:bg-[#D9534F] text-[#78716C] hover:text-white cursor-pointer"
+                                title="Move to Watched or Delete"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1975,152 +1708,20 @@ export function App() {
               </div>
             )}
           </section>
-
-          {/* 4. OFFLINE RECOMMENDATION ENGINE (ANILIST AFFINITY % × LETTERBOXD CARDS) */}
-          {recommendations.length > 0 && (
-            <section className="space-y-4 pt-4 border-t border-white/[0.08]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-6 rounded-full bg-[#FDBA74]" />
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                        Recommended For You
-                      </h2>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700/50">
-                        <Sparkles className="w-3 h-3" />
-                        100% Offline Engine ({OFFLINE_CATALOG_COUNT} Anime)
-                      </span>
-                    </div>
-                    <p className="text-xs font-bold text-slate-400">
-                      Computed locally with zero internet based on genre &amp; studio affinity with
-                      your library
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <TactileButton
-                    variant="white"
-                    size="sm"
-                    onClick={() => setRandomPick(getRandomOfflinePick(animes, selectedGenre))}
-                  >
-                    <Shuffle className="w-3.5 h-3.5 text-[#FDBA74]" />
-                    <span>Random Pick</span>
-                  </TactileButton>
-                  <TactileButton
-                    variant="slate"
-                    size="sm"
-                    onClick={() => {
-                      setNewStatus('plan');
-                      setShowAddModal(true);
-                    }}
-                  >
-                    <Search className="w-3.5 h-3.5 text-[#FDBA74]" />
-                    <span>Browse All {OFFLINE_CATALOG_COUNT} Anime</span>
-                  </TactileButton>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {recommendations.map((rec) => {
-                  const title = rec.title_english || rec.title;
-                  const rawPoster =
-                    rec.images?.jpg?.large_image_url || rec.images?.jpg?.image_url || '';
-                  const cachedPosterUrl = rawPoster
-                    ? `/api/cached-poster?id=${rec.mal_id}&url=${encodeURIComponent(rawPoster)}`
-                    : '';
-
-                  return (
-                    <div
-                      key={rec.mal_id}
-                      className="group bg-[#111624] rounded-2xl border border-white/[0.08] hover:border-[#FDBA74]/60 overflow-hidden shadow-[0_8px_22px_rgba(0,0,0,0.45)] flex flex-col justify-between transition-transform duration-150 hover:-translate-y-1"
-                    >
-                      <div>
-                        <div className="relative aspect-[2/3] w-full bg-slate-900 overflow-hidden ring-1 ring-inset ring-white/10">
-                          {cachedPosterUrl ? (
-                            <img
-                              src={cachedPosterUrl}
-                              alt={title}
-                              loading="lazy"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center p-4 text-center">
-                              <Film className="w-10 h-10 text-slate-700" />
-                            </div>
-                          )}
-
-                          <div className="absolute inset-0 bg-gradient-to-t from-[#090C15] via-[#090C15]/20 to-transparent" />
-
-                          {/* Top Match % & Score Badges */}
-                          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1">
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 tabular-nums">
-                              {rec.matchPercent}% Match
-                            </span>
-                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-black bg-[#090C15]/90 text-[#FDBA74] border border-white/10 tabular-nums">
-                              <Star className="w-2.5 h-2.5 fill-[#FDBA74]" />
-                              {rec.score || '-'}
-                            </span>
-                          </div>
-
-                          {/* Bottom Affinity Reason */}
-                          <div className="absolute bottom-2 left-2.5 right-2.5">
-                            <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-[#090C15]/90 backdrop-blur-md text-slate-200 border border-white/10 line-clamp-1">
-                              {rec.reason}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="p-3 space-y-1">
-                          <h3
-                            className="font-black text-sm text-white line-clamp-1 group-hover:text-[#FDBA74]"
-                            title={title}
-                          >
-                            {title}
-                          </h3>
-                          <p className="text-[11px] font-bold text-slate-400 line-clamp-1 tabular-nums">
-                            {rec.studios?.[0]?.name || 'Anime Studio'} • {rec.episodes || '?'} Eps
-                            {rec.year ? ` • ${rec.year}` : ''}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="p-3 pt-0 flex items-center gap-1.5">
-                        <TactileButton
-                          variant="amber"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => handleAddFromJikan(rec, 'plan')}
-                        >
-                          <Bookmark className="w-3.5 h-3.5" />
-                          <span>Watchlist</span>
-                        </TactileButton>
-                        <button
-                          onClick={() => handleAddFromJikan(rec, 'watching')}
-                          className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.12] text-slate-200 border border-white/[0.08] cursor-pointer"
-                          title="Start Watching Now"
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
         </main>
       ) : (
         /* =====================================================================
-           SCREEN 2: SERIES DETAIL, STORAGE MANAGER, SCENE BOOKMARKS & EPISODES
+           SCREEN 2: MINIMALIST SERIES DETAIL & UNIFIED EPISODE LIST
            ===================================================================== */
-        <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
-          <section className="bg-[#111624]/95 rounded-3xl border border-white/[0.08] shadow-[0_16px_45px_rgba(0,0,0,0.6)] p-5 sm:p-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
-              {/* Left Column: 2:3 Cinema Poster + Rematch & Storage Actions */}
+        <main
+          key={`detail-${selectedAnime.id}`}
+          className="animate-page-enter max-w-6xl mx-auto px-4 sm:px-6 pt-7 space-y-8"
+        >
+          <section className="bg-white rounded-3xl border border-[#E5E0D8] shadow-[0_12px_35px_-10px_rgba(28,25,23,0.08)] p-6 sm:p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Left Column: Poster & Clean Actions */}
               <div className="lg:col-span-3 flex flex-col items-center sm:items-start gap-3">
-                <div className="relative w-48 sm:w-full max-w-[230px] aspect-[2/3] rounded-2xl overflow-hidden ring-1 ring-inset ring-white/15 shadow-2xl bg-slate-900">
+                <div className="relative w-48 sm:w-full max-w-[220px] aspect-[2/3] rounded-2xl overflow-hidden shadow-lg bg-[#EAE6DF]">
                   {selectedAnime.posterUrl ? (
                     <img
                       src={selectedAnime.posterUrl}
@@ -2129,16 +1730,10 @@ export function App() {
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center">
-                      <Film className="w-12 h-12 text-slate-600 mb-2" />
-                      <span className="font-black text-sm text-slate-300">
+                      <Film className="w-12 h-12 text-[#78716C] mb-2" />
+                      <span className="font-black text-sm text-[#1C1917]">
                         {selectedAnime.title}
                       </span>
-                    </div>
-                  )}
-                  {selectedAnime.posterUrl?.startsWith('/api/poster/') && (
-                    <div className="absolute bottom-2.5 left-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-[#090C15]/90 backdrop-blur-md border border-emerald-500/30 text-emerald-300 text-[10px] font-black flex items-center justify-center gap-1.5">
-                      <HardDrive className="w-3 h-3" />
-                      <span>Local Poster Locked</span>
                     </div>
                   )}
                 </div>
@@ -2148,93 +1743,56 @@ export function App() {
                     setRematchingAnime(selectedAnime);
                     setSearchQuery(selectedAnime.title);
                   }}
-                  className="w-48 sm:w-full max-w-[230px] px-3 py-2 rounded-xl bg-[#090C15] hover:bg-slate-800/80 border border-white/[0.08] text-xs font-extrabold text-slate-300 hover:text-[#FDBA74] flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-48 sm:w-full max-w-[220px] px-3 py-2 rounded-xl bg-[#F5F3EE] hover:bg-[#EAE5DC] text-xs font-extrabold text-[#1C1917] flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-95"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-[#FDBA74]" />
-                  <span>Change Poster / Metadata</span>
+                  <RefreshCw className="w-3.5 h-3.5 text-[#E07A5F]" />
+                  <span>Change Poster</span>
                 </button>
-
-                {/* Steam-style Storage Manager Card on Left Column */}
-                <div className="w-48 sm:w-full max-w-[230px] p-3.5 rounded-2xl bg-[#090C15] border border-white/[0.08] space-y-2.5">
-                  <div className="flex items-center justify-between text-xs font-extrabold">
-                    <span className="text-slate-400 flex items-center gap-1.5">
-                      <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-                      Disk Space
-                    </span>
-                    <span className="text-white tabular-nums">
-                      {selectedAnime.hasLocalFiles
-                        ? formatDiskSize(selectedAnime.totalDiskMB)
-                        : '0 MB (Archived)'}
-                    </span>
-                  </div>
-
-                  {selectedAnime.hasLocalFiles ? (
-                    <TactileButton
-                      variant="slate"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => setCleaningAnime(selectedAnime)}
-                    >
-                      <Archive className="w-3.5 h-3.5 text-[#FDBA74]" />
-                      <span>Free Disk Space (.mkv)</span>
-                    </TactileButton>
-                  ) : (
-                    <p className="text-[11px] font-bold text-emerald-400/90 leading-relaxed">
-                      Poster, rating &amp; watch history are permanently saved in your library.
-                    </p>
-                  )}
-                </div>
               </div>
 
-              {/* Right Column: Series Metadata & Precision Episode/Timestamp Monitor */}
+              {/* Right Column: Metadata & Custom Scrubber */}
               <div className="lg:col-span-9 space-y-6">
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.08] pb-5">
-                  <div className="space-y-2">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#EFECE6] pb-5">
+                  <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
                       {selectedAnime.score && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-[#FDBA74] text-[#090C15] text-xs font-black flex items-center gap-1 tabular-nums">
-                          <Star className="w-3.5 h-3.5 fill-[#090C15]" />
-                          Score {selectedAnime.score}
-                        </span>
-                      )}
-                      {selectedAnime.personalRating && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-emerald-400/15 text-emerald-300 border border-emerald-500/30 text-xs font-black tabular-nums">
-                          Your Rating: {selectedAnime.personalRating}/10
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#F4A261]/20 text-[#B36529] text-xs font-black flex items-center gap-1 tabular-nums">
+                          <Star className="w-3.5 h-3.5 fill-[#E07A5F] text-[#E07A5F]" />
+                          {selectedAnime.score}
                         </span>
                       )}
                       {selectedAnime.studio && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-white/[0.06] text-slate-200 border border-white/[0.08] text-xs font-extrabold">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#F5F3EE] text-[#1C1917] text-xs font-extrabold">
                           {selectedAnime.studio}
                         </span>
                       )}
                       {selectedAnime.genres?.map((g) => (
                         <span
                           key={g}
-                          className="px-2.5 py-0.5 rounded-md bg-white/[0.03] text-slate-400 border border-white/[0.06] text-xs font-bold"
+                          className="px-2.5 py-0.5 rounded-full bg-[#F5F3EE] text-[#78716C] text-xs font-bold"
                         >
                           {g}
                         </span>
                       ))}
+                      {selectedAnime.hasLocalFiles && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#2A9D8F]/15 text-[#2A9D8F] text-xs font-extrabold tabular-nums">
+                          {formatDiskSize(selectedAnime.totalDiskMB)} on Disk
+                        </span>
+                      )}
                     </div>
 
-                    <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                    <h2 className="text-2xl sm:text-4xl font-black text-[#1C1917] tracking-tight">
                       {selectedAnime.title}
                     </h2>
-
-                    {selectedAnime.aliases?.length > 0 && (
-                      <p className="text-xs font-bold text-slate-400">
-                        Alternate Titles: {selectedAnime.aliases.join(' • ')}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Segmented Status Control & Mark Completed Button */}
+                  {/* Custom Segmented Status Bar (Zero <select>!) */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center p-1 rounded-xl bg-[#090C15] border border-white/[0.08]">
+                    <div className="inline-flex items-center p-1 rounded-xl bg-[#F5F3EE]">
                       {(
                         [
                           { id: 'watching', label: 'Watching' },
-                          { id: 'completed', label: 'Completed' },
+                          { id: 'completed', label: 'Watched' },
                           { id: 'plan', label: 'Watchlist' },
                           { id: 'on_hold', label: 'On Hold' },
                         ] as const
@@ -2247,10 +1805,10 @@ export function App() {
                               status: st.id,
                             })
                           }
-                          className={`px-2.5 py-1 rounded-lg text-xs font-extrabold cursor-pointer ${
+                          className={`px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer transition-transform active:scale-95 ${
                             selectedAnime.status === st.id
-                              ? 'bg-[#1D263B] text-white border border-white/15'
-                              : 'text-slate-400 hover:text-white'
+                              ? 'bg-white text-[#1C1917] shadow-sm'
+                              : 'text-[#78716C] hover:text-[#1C1917]'
                           }`}
                         >
                           {st.label}
@@ -2269,40 +1827,40 @@ export function App() {
                         }}
                       >
                         <Trophy className="w-3.5 h-3.5" />
-                        <span>Mark Completed</span>
+                        <span>Mark Watched</span>
                       </TactileButton>
                     )}
                   </div>
                 </div>
 
-                {/* DUAL TELEMETRY CARDS: EPISODE COUNTER & TIMESTAMP SCRUBBER */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Card 1: Current Episode */}
-                  <div className="p-4 sm:p-5 rounded-2xl bg-[#090C15] border border-white/[0.08] flex flex-col justify-between gap-3">
+                {/* CLEAN EPISODE & CUSTOM TIMELINE SCRUBBER (ZERO NATIVE <input type="range">) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* Episode Stepper */}
+                  <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8] flex flex-col justify-between gap-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                        <Tv className="w-4 h-4 text-[#F97316]" />
-                        CURRENT EPISODE
+                      <span className="text-xs font-black uppercase tracking-wider text-[#78716C] flex items-center gap-1.5">
+                        <Tv className="w-4 h-4 text-[#E07A5F]" />
+                        Episode Progress
                       </span>
-                      <span className="text-xs font-extrabold text-emerald-400 tabular-nums">
-                        {selectedAnime.watchedEpisodes.length} / {selectedAnime.totalEpisodes || '?'}{' '}
-                        Watched
+                      <span className="text-xs font-extrabold text-[#2A9D8F] tabular-nums">
+                        {selectedAnime.watchedEpisodes.length} /{' '}
+                        {selectedAnime.totalEpisodes || '?'} Done
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2 tabular-nums">
-                        <span className="text-3xl sm:text-4xl font-black text-white">
-                          EP {selectedAnime.currentEpisodeLabel}
+                        <span className="text-3xl sm:text-4xl font-black text-[#1C1917]">
+                          Ep {selectedAnime.currentEpisodeLabel}
                         </span>
-                        <span className="text-sm font-extrabold text-slate-500">
+                        <span className="text-sm font-extrabold text-[#78716C]">
                           of {selectedAnime.totalEpisodes || '?'}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
                         <TactileButton
-                          variant="slate"
+                          variant="white"
                           size="sm"
                           onClick={() => handleStepEpisode(-1)}
                           title="Previous Episode"
@@ -2310,7 +1868,7 @@ export function App() {
                           <ChevronLeft className="w-4 h-4" />
                         </TactileButton>
                         <TactileButton
-                          variant="slate"
+                          variant="white"
                           size="sm"
                           onClick={() => handleStepEpisode(1)}
                           title="Next Episode (+1)"
@@ -2319,54 +1877,26 @@ export function App() {
                         </TactileButton>
                       </div>
                     </div>
-
-                    {selectedAnime.localFiles && selectedAnime.localFiles.length > 0 && (
-                      <select
-                        value={selectedAnime.currentEpisodeLabel}
-                        onChange={(e) => {
-                          const found = selectedAnime.localFiles?.find(
-                            (f) => f.episodeLabel === e.target.value
-                          );
-                          if (found) {
-                            const savedSec =
-                              selectedAnime.episodeProgress?.[found.episodeLabel]?.seconds || 0;
-                            saveAnimeUpdate({
-                              ...selectedAnime,
-                              currentEpisode: found.episodeNum,
-                              currentEpisodeLabel: found.episodeLabel,
-                              currentSeconds: savedSec,
-                            });
-                          }
-                        }}
-                        className="w-full px-3 py-2 rounded-xl bg-[#111624] border border-white/[0.08] text-xs font-bold text-slate-200 cursor-pointer"
-                      >
-                        {selectedAnime.localFiles.map((f) => (
-                          <option key={f.id} value={f.episodeLabel}>
-                            [{f.part}] Episode {f.episodeLabel} — {f.fileName}
-                          </option>
-                        ))}
-                      </select>
-                    )}
                   </div>
 
-                  {/* Card 2: Timestamp Scrubber */}
-                  <div className="p-4 sm:p-5 rounded-2xl bg-[#090C15] border border-white/[0.08] flex flex-col justify-between gap-3">
+                  {/* Custom Interactive Timeline Scrubber */}
+                  <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8] flex flex-col justify-between gap-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-[#FDBA74]" />
-                        SAVED TIMESTAMP
+                      <span className="text-xs font-black uppercase tracking-wider text-[#78716C] flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-[#E07A5F]" />
+                        Saved Timestamp
                       </span>
-                      <span className="text-xs font-extrabold text-[#FDBA74] tabular-nums">
-                        {progressPct}% Elapsed
+                      <span className="text-xs font-extrabold text-[#E07A5F] tabular-nums">
+                        {progressPct}%
                       </span>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2 tabular-nums">
-                        <span className="text-3xl sm:text-4xl font-black text-[#FDBA74]">
+                        <span className="text-3xl sm:text-4xl font-black text-[#1C1917]">
                           {formatTime(selectedAnime.currentSeconds)}
                         </span>
-                        <span className="text-sm font-extrabold text-slate-500">
+                        <span className="text-sm font-extrabold text-[#78716C]">
                           / {formatTime(selectedAnime.durationSeconds || 1420)}
                         </span>
                       </div>
@@ -2378,61 +1908,44 @@ export function App() {
                           max={180}
                           value={editMin}
                           onChange={(e) => setEditMin(e.target.value)}
-                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#111624] border border-white/[0.08] text-white"
+                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-white border border-[#DFD9CE] text-[#1C1917]"
                           title="Minutes"
                         />
-                        <span className="font-black text-slate-400">:</span>
+                        <span className="font-black text-[#78716C]">:</span>
                         <input
                           type="number"
                           min={0}
                           max={59}
                           value={editSec}
                           onChange={(e) => setEditSec(e.target.value)}
-                          className="w-14 px-2 py-1 text-center font-black text-sm rounded-xl bg-[#111624] border border-white/[0.08] text-white"
+                          className="w-12 px-2 py-1 text-center font-black text-sm rounded-xl bg-white border border-[#DFD9CE] text-[#1C1917]"
                           title="Seconds"
                         />
                         <TactileButton variant="amber" size="sm" onClick={handleManualTimeSave}>
-                          Save
+                          Set
                         </TactileButton>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <input
-                        type="range"
-                        min={0}
-                        max={selectedAnime.durationSeconds || 1420}
-                        value={selectedAnime.currentSeconds}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          setAnimes((prev) =>
-                            prev.map((a) =>
-                              a.id === selectedAnime.id
-                                ? {
-                                    ...a,
-                                    currentSeconds: val,
-                                    episodeProgress: {
-                                      ...a.episodeProgress,
-                                      [a.currentEpisodeLabel]: {
-                                        seconds: val,
-                                        duration: a.durationSeconds || 1420,
-                                      },
-                                    },
-                                  }
-                                : a
-                            )
-                          );
-                        }}
-                        onMouseUp={() => saveAnimeUpdate(selectedAnime, true)}
-                        onTouchEnd={() => saveAnimeUpdate(selectedAnime, true)}
-                        className="w-full accent-[#F97316] cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-                      />
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
+                    {/* Bespoke Clickable Scrubber Track (Replaces native grey slider) */}
+                    <div className="space-y-2">
+                      <div
+                        ref={scrubberRef}
+                        onClick={handleScrubberClick}
+                        className="group relative w-full h-3 rounded-full bg-[#E5E0D8] cursor-pointer overflow-hidden flex items-center"
+                        title="Click anywhere on the timeline to jump to that minute"
+                      >
+                        <div
+                          className="animate-bar-fill h-full bg-[#E07A5F] rounded-full transition-all duration-200"
+                          style={{ width: `${Math.max(3, progressPct)}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-extrabold text-[#78716C]">
                         <button
                           onClick={() =>
                             saveAnimeUpdate({ ...selectedAnime, currentSeconds: 0 })
                           }
-                          className="hover:text-white underline cursor-pointer"
+                          className="hover:text-[#1C1917] cursor-pointer"
                         >
                           Reset 00:00
                         </button>
@@ -2443,7 +1956,7 @@ export function App() {
                               currentSeconds: (selectedAnime.currentSeconds || 0) + 85,
                             })
                           }
-                          className="hover:text-[#FDBA74] underline cursor-pointer"
+                          className="hover:text-[#E07A5F] cursor-pointer"
                         >
                           +85s (Skip OP)
                         </button>
@@ -2452,7 +1965,7 @@ export function App() {
                   </div>
                 </div>
 
-                {/* PRIMARY PLAY & ARCHIVE ACTIONS */}
+                {/* Primary Play & Delete/Archive Row */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                   <div className="flex flex-wrap items-center gap-3">
                     {selectedAnime.hasLocalFiles ? (
@@ -2471,7 +1984,7 @@ export function App() {
 
                         {selectedAnime.currentSeconds > 10 && (
                           <TactileButton
-                            variant="slate"
+                            variant="white"
                             size="md"
                             onClick={() => handlePlayMpv(selectedAnime, undefined, 0)}
                           >
@@ -2490,7 +2003,7 @@ export function App() {
                           <span>
                             {selectedAnime.folderName
                               ? `Open Folder "${selectedAnime.folderName}"`
-                              : 'Prepare Video Folder in anime/'}
+                              : 'Prepare Folder in anime/'}
                           </span>
                         </TactileButton>
 
@@ -2500,53 +2013,32 @@ export function App() {
                           onClick={() => handleStepEpisode(1)}
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>+1 Episode Completed</span>
+                          <span>+1 Episode Done</span>
                         </TactileButton>
                       </div>
                     )}
                   </div>
 
+                  {/* Unified Delete / Move to Watched Trigger */}
                   <div className="flex items-center gap-2">
-                    {selectedAnime.folderName && selectedAnime.hasLocalFiles && (
-                      <TactileButton
-                        variant="slate"
-                        size="sm"
-                        onClick={() => handleOpenExplorer(selectedAnime.folderName)}
-                      >
-                        <FolderOpen className="w-4 h-4 text-[#F97316]" />
-                        <span>Open Explorer</span>
-                      </TactileButton>
-                    )}
-
-                    {selectedAnime.hasLocalFiles && (
-                      <TactileButton
-                        variant="slate"
-                        size="sm"
-                        onClick={() => setCleaningAnime(selectedAnime)}
-                        title="Delete .mkv video files to free SSD space while keeping poster & watched history"
-                      >
-                        <Archive className="w-4 h-4 text-[#FDBA74]" />
-                        <span>Free Disk Space (.mkv)</span>
-                      </TactileButton>
-                    )}
-
-                    <button
-                      onClick={() => handleDeleteAnime(selectedAnime)}
-                      className="p-2.5 rounded-xl bg-rose-950/50 hover:bg-rose-900/70 text-rose-400 border border-rose-800/50 cursor-pointer"
-                      title="Remove series card from library"
+                    <TactileButton
+                      variant="white"
+                      size="sm"
+                      onClick={() => setDeletingTarget(selectedAnime)}
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <Trash2 className="w-4 h-4 text-[#D9534F]" />
+                      <span>Archive / Delete...</span>
+                    </TactileButton>
                   </div>
                 </div>
 
-                {/* SCENE TIMESTAMP BOOKMARKS (POTPLAYER / PLEX CHAPTERS) */}
-                <div className="p-4 rounded-2xl bg-[#090C15] border border-white/[0.08] space-y-3">
+                {/* Scene Timestamp Bookmarks */}
+                <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8] space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Bookmark className="w-4 h-4 text-[#FDBA74]" />
-                      <h4 className="text-xs font-black uppercase tracking-wider text-white">
-                        Scene Timestamp Bookmarks
+                      <Bookmark className="w-4 h-4 text-[#E07A5F]" />
+                      <h4 className="text-xs font-black uppercase tracking-wider text-[#1C1917]">
+                        Scene Bookmarks
                       </h4>
                     </div>
                     <div className="flex items-center gap-2 flex-1 sm:flex-initial max-w-md">
@@ -2554,12 +2046,12 @@ export function App() {
                         type="text"
                         value={bookmarkNote}
                         onChange={(e) => setBookmarkNote(e.target.value)}
-                        placeholder={`Note for Ep ${selectedAnime.currentEpisodeLabel} at ${formatTime(selectedAnime.currentSeconds)}...`}
-                        className="flex-1 px-3 py-1.5 rounded-xl bg-[#111624] border border-white/[0.08] text-xs font-bold text-white"
+                        placeholder={`Label for Ep ${selectedAnime.currentEpisodeLabel} at ${formatTime(selectedAnime.currentSeconds)}...`}
+                        className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-[#DFD9CE] text-xs font-bold text-[#1C1917]"
                       />
-                      <TactileButton variant="slate" size="sm" onClick={handleAddBookmark}>
-                        <Plus className="w-3.5 h-3.5 text-[#FDBA74]" />
-                        <span>Bookmark Scene</span>
+                      <TactileButton variant="white" size="sm" onClick={handleAddBookmark}>
+                        <Plus className="w-3.5 h-3.5 text-[#E07A5F]" />
+                        <span>Save Scene</span>
                       </TactileButton>
                     </div>
                   </div>
@@ -2573,7 +2065,7 @@ export function App() {
                         return (
                           <div
                             key={bm.id}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#111624] border border-white/[0.08] text-xs font-bold"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-[#E5E0D8] text-xs font-bold shadow-sm"
                           >
                             <button
                               onClick={() => {
@@ -2587,17 +2079,17 @@ export function App() {
                                   });
                                 }
                               }}
-                              className="flex items-center gap-1.5 text-left hover:text-[#FDBA74] cursor-pointer"
+                              className="flex items-center gap-1.5 text-left hover:text-[#E07A5F] cursor-pointer"
                             >
-                              <Play className="w-3 h-3 text-[#F97316] fill-current" />
-                              <span className="font-black text-[#FDBA74] tabular-nums">
+                              <Play className="w-3 h-3 text-[#E07A5F] fill-current" />
+                              <span className="font-black text-[#E07A5F] tabular-nums">
                                 Ep {bm.episodeLabel} • {formatTime(bm.seconds)}
                               </span>
-                              <span className="text-slate-200">— {bm.label}</span>
+                              <span className="text-[#1C1917]">— {bm.label}</span>
                             </button>
                             <button
                               onClick={() => handleDeleteBookmark(bm.id)}
-                              className="text-slate-500 hover:text-rose-400 cursor-pointer"
+                              className="text-[#A8A29E] hover:text-[#D9534F] cursor-pointer"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -2610,45 +2102,22 @@ export function App() {
               </div>
             </div>
 
-            {/* EPISODE LIST VAULT (CRUNCHYROLL × PLEX FILE INSPECTOR) */}
-            {selectedAnime.hasLocalFiles && selectedAnime.localFiles && (
-              <div className="mt-8 pt-7 border-t border-white/[0.08] space-y-5">
+            {/* UNIFIED EPISODE LIST (ALL EPISODES IN ONE CONTINUOUS LIST) */}
+            {selectedAnime.hasLocalFiles && unifiedEpisodes.length > 0 && (
+              <div className="mt-8 pt-7 border-t border-[#EFECE6] space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-black text-white flex items-center gap-2">
-                      <span>Episodes ({selectedAnime.localFiles.length} Local MKV Files)</span>
+                    <h3 className="text-lg font-black text-[#1C1917]">
+                      Episodes ({unifiedEpisodes.length})
                     </h3>
-                    <p className="text-xs font-bold text-slate-400">
-                      Click <strong>Play MPV</strong> to launch at your saved timestamp, or clean
-                      individual watched episodes to save SSD space.
+                    <p className="text-xs font-bold text-[#78716C]">
+                      Click any episode to play in MPV from your last timestamp.
                     </p>
                   </div>
-
-                  {parts.length > 1 && (
-                    <div className="flex items-center gap-2">
-                      <TactileButton
-                        variant={selectedPart === 'ALL' ? 'amber' : 'white'}
-                        size="sm"
-                        onClick={() => setSelectedPart('ALL')}
-                      >
-                        All ({selectedAnime.localFiles.length})
-                      </TactileButton>
-                      {parts.map((p) => (
-                        <TactileButton
-                          key={p}
-                          variant={selectedPart === p ? 'amber' : 'white'}
-                          size="sm"
-                          onClick={() => setSelectedPart(p)}
-                        >
-                          {p}
-                        </TactileButton>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {filteredEpisodes.map((file) => {
+                  {unifiedEpisodes.map((file, idx) => {
                     const isCurrent = file.episodeLabel === selectedAnime.currentEpisodeLabel;
                     const isWatched = selectedAnime.watchedEpisodes.includes(file.episodeLabel);
                     const epProg = selectedAnime.episodeProgress?.[file.episodeLabel];
@@ -2661,25 +2130,26 @@ export function App() {
                     return (
                       <div
                         key={file.id}
-                        className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 ${
+                        style={{ animationDelay: `${Math.min(idx * 30, 400)}ms` }}
+                        className={`animate-card-wave poster-card-spring rounded-2xl border p-4 flex flex-col justify-between gap-3 ${
                           isCurrent
-                            ? 'bg-[#172036] border-[#F97316]'
+                            ? 'bg-[#1C1917] text-[#FAF8F5] border-[#1C1917] shadow-md'
                             : isWatched
-                              ? 'bg-[#090C15]/90 border-emerald-800/40 opacity-85'
-                              : 'bg-[#090C15] border-white/[0.07] hover:border-white/20'
+                              ? 'bg-[#FAF8F5] border-[#E5E0D8] opacity-85'
+                              : 'bg-white border-[#E5E0D8]'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <button
                               onClick={() => toggleWatchedEpisode(file.episodeLabel)}
-                              title="Toggle episode watched state"
-                              className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center shrink-0 font-black cursor-pointer tabular-nums ${
+                              title="Toggle episode watched"
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-black cursor-pointer tabular-nums ${
                                 isWatched
-                                  ? 'bg-emerald-500 text-[#090C15] border-emerald-400'
+                                  ? 'bg-[#2A9D8F] text-white'
                                   : isCurrent
-                                    ? 'bg-[#F97316] text-[#090C15] border-amber-300'
-                                    : 'bg-[#111624] text-slate-200 border-white/10'
+                                    ? 'bg-[#E07A5F] text-white'
+                                    : 'bg-[#F5F3EE] text-[#1C1917]'
                               }`}
                             >
                               {isWatched ? (
@@ -2690,28 +2160,24 @@ export function App() {
                             </button>
 
                             <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm font-black text-white">
-                                  Episode {file.episodeLabel}
-                                </span>
-                                {isCurrent && (
-                                  <span className="px-2 py-0.5 rounded bg-[#F97316] text-[#090C15] text-[10px] font-black uppercase">
-                                    Active
-                                  </span>
-                                )}
-                              </div>
-                              <p
-                                className="text-[11px] font-bold text-slate-400 truncate"
-                                title={file.fileName}
+                              <span
+                                className={`text-sm font-black block ${
+                                  isCurrent ? 'text-white' : 'text-[#1C1917]'
+                                }`}
                               >
-                                {file.part} • {file.sizeMB} MB
-                              </p>
-                              <p className="text-[11px] font-extrabold text-[#FDBA74] mt-0.5 tabular-nums">
+                                Episode {file.episodeLabel}
+                              </span>
+                              <p
+                                className={`text-[11px] font-bold truncate ${
+                                  isCurrent ? 'text-stone-400' : 'text-[#78716C]'
+                                }`}
+                              >
+                                {file.sizeMB} MB •{' '}
                                 {savedSec > 5
-                                  ? `Stopped at ${formatTime(savedSec)} (${epPct}%)`
+                                  ? `Stopped at ${formatTime(savedSec)}`
                                   : isWatched
-                                    ? 'Completed'
-                                    : 'Not started'}
+                                    ? 'Watched'
+                                    : 'Unwatched'}
                               </p>
                             </div>
                           </div>
@@ -2720,42 +2186,47 @@ export function App() {
                             <button
                               onClick={() => markWatchedUpTo(file)}
                               title={`Mark Episodes 01 to ${file.episodeLabel} as watched`}
-                              className="p-1.5 rounded-lg bg-[#111624] hover:bg-slate-800 text-slate-400 hover:text-emerald-400 border border-white/[0.08] cursor-pointer"
+                              className={`p-1.5 rounded-lg cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-white/10 hover:bg-white/20 text-stone-300'
+                                  : 'bg-[#F5F3EE] hover:bg-[#EAE5DC] text-[#78716C]'
+                              }`}
                             >
                               <CheckCheck className="w-3.5 h-3.5" />
                             </button>
 
                             <button
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Delete Episode ${file.episodeLabel} video file (${file.sizeMB} MB) from disk and mark it as Watched?`
-                                  )
-                                ) {
-                                  handleDeleteVideos(selectedAnime, 'single', file);
-                                }
-                              }}
-                              title={`Delete Ep ${file.episodeLabel} .mkv file (${file.sizeMB} MB) to save disk space`}
-                              className="p-1.5 rounded-lg bg-[#111624] hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-white/[0.08] cursor-pointer"
+                              onClick={() =>
+                                setDeletingEpisode({ anime: selectedAnime, file })
+                              }
+                              title={`Delete Ep ${file.episodeLabel} .mkv file (${file.sizeMB} MB)`}
+                              className={`p-1.5 rounded-lg cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-white/10 hover:bg-[#D9534F] text-stone-300 hover:text-white'
+                                  : 'bg-[#F5F3EE] hover:bg-[#D9534F] text-[#78716C] hover:text-white'
+                              }`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
 
                             <TactileButton
-                              variant={isCurrent ? 'amber' : 'slate'}
+                              variant={isCurrent ? 'amber' : 'white'}
                               size="sm"
                               onClick={() => handlePlayMpv(selectedAnime, file)}
                             >
                               <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Play</span>
                             </TactileButton>
                           </div>
                         </div>
 
-                        <div className="w-full h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                        <div
+                          className={`w-full h-1 rounded-full overflow-hidden ${
+                            isCurrent ? 'bg-white/15' : 'bg-[#EAE6DF]'
+                          }`}
+                        >
                           <div
-                            className={`h-full ${
-                              isWatched ? 'bg-emerald-400' : 'bg-[#F97316]'
+                            className={`animate-bar-fill h-full ${
+                              isWatched ? 'bg-[#2A9D8F]' : 'bg-[#E07A5F]'
                             }`}
                             style={{
                               width: `${isWatched ? 100 : savedSec > 5 ? Math.max(6, epPct) : 0}%`,
@@ -2773,22 +2244,22 @@ export function App() {
       )}
 
       {/* =====================================================================
-          MODAL 1: ADD / SEARCH ANIME (UNIFIED CARA 1 + CARA 2 • 950 OFFLINE DB)
+          MODAL 1: ULTRA-CLEAN ADD ANIME / CHANGE POSTER (ZERO NESTED TUTORIAL BOXES!)
          ===================================================================== */}
       {(showAddModal || rematchingAnime) && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111624] w-full max-w-2xl rounded-3xl border border-white/15 shadow-2xl p-6 max-h-[90vh] overflow-y-auto space-y-5">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#1C1917]/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-white w-full max-w-xl rounded-3xl border border-[#E5E0D8] shadow-[0_25px_60px_-15px_rgba(28,25,23,0.3)] p-6 max-h-[88vh] overflow-y-auto space-y-5">
+            <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3.5">
               <div>
-                <h3 className="text-lg sm:text-xl font-black text-white">
+                <h3 className="text-lg font-black text-[#1C1917]">
                   {rematchingAnime
-                    ? `Change Poster & Metadata: "${rematchingAnime.title}"`
-                    : 'Add Anime to Library (100% Offline Engine)'}
+                    ? `Change Poster: ${rematchingAnime.title}`
+                    : 'Add Anime to Library'}
                 </h3>
-                <p className="text-xs font-bold text-slate-400">
+                <p className="text-xs font-bold text-[#78716C]">
                   {rematchingAnime
-                    ? 'Select a match below to overwrite the local poster in anime/.posters/'
-                    : `Powered by ${OFFLINE_CATALOG_COUNT} embedded anime records (0ms offline search) + Local MKV Auto-Scanner`}
+                    ? 'Search and click a cover below to save it locally.'
+                    : 'For downloaded .mkv videos, simply drop the folder in anime/ and click Sync.'}
                 </p>
               </div>
               <button
@@ -2796,399 +2267,410 @@ export function App() {
                   setShowAddModal(false);
                   setRematchingAnime(null);
                 }}
-                className="p-2 rounded-xl bg-[#090C15] border border-white/10 text-slate-300 cursor-pointer"
+                className="p-2 rounded-xl bg-[#F5F3EE] hover:bg-[#EAE5DC] text-[#1C1917] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {!rematchingAnime && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3.5 rounded-2xl bg-[#090C15] border border-emerald-500/30 flex flex-col justify-between gap-2.5">
-                  <div>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-950 text-emerald-300 border border-emerald-700/50 mb-1">
-                      <HardDrive className="w-3 h-3" />
-                      Method 1 • Have Local .MKV Files
-                    </span>
-                    <h4 className="text-xs font-black text-white">
-                      Place Anime Folder in <code className="text-emerald-300">Anideck/anime/</code>
-                    </h4>
-                    <p className="text-[11px] font-bold text-slate-400 mt-0.5">
-                      Drop your downloaded <code>.mkv</code> folder and click Scan. Episodes, MPV
-                      timestamps, and posters link automatically.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <TactileButton
+              <div className="space-y-3">
+                {/* Custom Segmented Status Picker (No <select>!) */}
+                <div className="flex items-center justify-between gap-2 p-1.5 rounded-2xl bg-[#F5F3EE]">
+                  {(
+                    [
+                      { id: 'plan', label: 'Watchlist' },
+                      { id: 'watching', label: 'Watching' },
+                      { id: 'completed', label: 'Watched' },
+                    ] as const
+                  ).map((st) => (
+                    <button
+                      key={st.id}
                       type="button"
-                      variant="slate"
-                      size="sm"
-                      onClick={() => handleOpenExplorer()}
+                      onClick={() => setNewStatus(st.id)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition-transform active:scale-95 ${
+                        newStatus === st.id
+                          ? 'bg-white text-[#1C1917] shadow-sm'
+                          : 'text-[#78716C] hover:text-[#1C1917]'
+                      }`}
                     >
-                      <FolderOpen className="w-3.5 h-3.5 text-[#FDBA74]" />
-                      <span>Open anime/</span>
-                    </TactileButton>
-                    <TactileButton
-                      type="button"
-                      variant="emerald"
-                      size="sm"
-                      onClick={() => {
-                        setShowAddModal(false);
-                        fetchLibrary(true);
-                      }}
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Auto-Scan Now</span>
-                    </TactileButton>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-[#090C15] border border-amber-500/30 flex flex-col justify-between gap-2">
-                  <div>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-950 text-[#FDBA74] border border-amber-700/50 mb-1">
-                      <Bookmark className="w-3 h-3" />
-                      Method 2 • Build Watchlist / Log History
-                    </span>
-                    <h4 className="text-xs font-black text-white">
-                      Search {OFFLINE_CATALOG_COUNT} Offline Anime Database Below
-                    </h4>
-                    <p className="text-[11px] font-bold text-slate-400 mt-0.5">
-                      Add any anime to your Watchlist or Completed vault without needing video
-                      files. Auto-links if you download the videos later.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!rematchingAnime && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#090C15] border border-white/[0.08]">
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                    Target Status
-                  </label>
-                  <select
-                    value={newStatus}
-                    onChange={(e) =>
-                      setNewStatus(e.target.value as 'watching' | 'completed' | 'plan')
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-[#111624] border border-white/10 text-xs font-black text-white"
-                  >
-                    <option value="plan">Watchlist (Plan to Watch)</option>
-                    <option value="watching">Currently Watching</option>
-                    <option value="completed">Completed / Watched</option>
-                  </select>
+                      {st.label}
+                    </button>
+                  ))}
                 </div>
 
                 {newStatus === 'watching' && (
-                  <>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                        Current Episode
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={newEp}
-                        onChange={(e) => setNewEp(parseInt(e.target.value || '1', 10))}
-                        className="w-full px-3 py-1.5 rounded-xl bg-[#111624] border border-white/10 text-sm font-black text-white"
-                      />
+                  <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-extrabold text-[#78716C]">Episode:</span>
+                      <button
+                        type="button"
+                        onClick={() => setNewEp((p) => Math.max(1, p - 1))}
+                        className="p-1 rounded-lg bg-white border border-[#DFD9CE] cursor-pointer"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-8 text-center font-black text-sm tabular-nums">
+                        {newEp}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNewEp((p) => p + 1)}
+                        className="p-1 rounded-lg bg-white border border-[#DFD9CE] cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                        Last Minute
-                      </label>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-extrabold text-[#78716C]">Minute:</span>
                       <input
                         type="number"
                         min={0}
                         value={newMin}
                         onChange={(e) => setNewMin(parseInt(e.target.value || '0', 10))}
-                        className="w-full px-3 py-1.5 rounded-xl bg-[#111624] border border-white/10 text-sm font-black text-white"
+                        className="w-14 px-2 py-1 text-center rounded-xl bg-white border border-[#DFD9CE] text-sm font-black"
                       />
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {newStatus === 'completed' && (
-                  <>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                        Personal Rating (1-10)
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={newRating}
-                        onChange={(e) => setNewRating(parseInt(e.target.value || '9', 10))}
-                        className="w-full px-3 py-1.5 rounded-xl bg-[#111624] border border-white/10 text-sm font-black text-white"
-                      />
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-extrabold text-[#78716C]">Score:</span>
+                      <button
+                        type="button"
+                        onClick={() => setNewRating((p) => Math.max(1, p - 1))}
+                        className="p-1 rounded-lg bg-white border border-[#DFD9CE] cursor-pointer"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-8 text-center font-black text-sm tabular-nums">
+                        {newRating}/10
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNewRating((p) => Math.min(10, p + 1))}
+                        className="p-1 rounded-lg bg-white border border-[#DFD9CE] cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                        Short Review
-                      </label>
-                      <input
-                        type="text"
-                        value={newNotes}
-                        onChange={(e) => setNewNotes(e.target.value)}
-                        placeholder="Masterpiece!"
-                        className="w-full px-3 py-1.5 rounded-xl bg-[#111624] border border-white/10 text-sm font-bold text-white"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {newStatus === 'plan' && (
-                  <div className="sm:col-span-2 flex items-center text-xs font-bold text-slate-400">
-                    Save series to your Watchlist now; if you download the .mkv folder later,
-                    Anideck will automatically link it.
+                    <input
+                      type="text"
+                      value={newNotes}
+                      onChange={(e) => setNewNotes(e.target.value)}
+                      placeholder="Short review note..."
+                      className="flex-1 min-w-[160px] px-3 py-1.5 rounded-xl bg-white border border-[#DFD9CE] text-xs font-bold"
+                    />
                   </div>
                 )}
               </div>
             )}
 
-            {/* Search Input + Quick Catalog Filters */}
-            <div className="space-y-2.5">
-              <form onSubmit={handleSearchMal} className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={`Search ${OFFLINE_CATALOG_COUNT} offline anime by title or studio (e.g., Frieren, MAPPA, Steins;Gate)...`}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#090C15] border border-white/10 text-sm font-extrabold text-white"
-                    autoFocus
-                  />
-                </div>
-                {!rematchingAnime && searchQuery.trim() && (
-                  <TactileButton type="button" variant="slate" size="md" onClick={handleAddManual}>
-                    Save Manual
-                  </TactileButton>
-                )}
-              </form>
+            <form onSubmit={handleSearchMal} className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-[#78716C] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Type anime title..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#FAF8F5] border border-[#DFD9CE] text-sm font-extrabold text-[#1C1917] focus:outline-none focus:border-[#E07A5F]"
+                  autoFocus
+                />
+              </div>
+              {!rematchingAnime && searchQuery.trim() && (
+                <TactileButton type="button" variant="white" size="md" onClick={handleAddManual}>
+                  Save Title
+                </TactileButton>
+              )}
+            </form>
 
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    onClick={() => setModalGenreFilter('ALL')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer ${
-                      modalGenreFilter === 'ALL'
-                        ? 'bg-[#F97316] text-[#090C15]'
-                        : 'bg-[#090C15] text-slate-400 hover:text-white border border-white/[0.07]'
-                    }`}
-                  >
-                    All
-                  </button>
-                  {POPULAR_GENRES.slice(0, 6).map((g) => (
-                    <button
-                      type="button"
-                      key={g}
-                      onClick={() =>
-                        setModalGenreFilter((prev) => (prev === g ? 'ALL' : g))
-                      }
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer ${
-                        modalGenreFilter === g
-                          ? 'bg-[#F97316] text-[#090C15]'
-                          : 'bg-[#090C15] text-slate-400 hover:text-white border border-white/[0.07]'
-                      }`}
+            {searchingMal && (
+              <p className="text-xs font-bold text-[#78716C] text-center py-2">
+                Searching poster...
+              </p>
+            )}
+
+            {jikanResults.length > 0 && (
+              <div className="space-y-2">
+                {jikanResults.map((item, idx) => {
+                  const canonicalTitle = item.title_english || item.title;
+                  const existing = !rematchingAnime
+                    ? checkDuplicate(canonicalTitle, item.mal_id)
+                    : undefined;
+
+                  return (
+                    <div
+                      key={item.mal_id}
+                      style={{ animationDelay: `${idx * 45}ms` }}
+                      className="animate-card-wave p-3 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8] flex items-center justify-between gap-3"
                     >
-                      {g}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setModalShortOnly((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold border cursor-pointer ${
-                    modalShortOnly
-                      ? 'bg-emerald-400/20 text-emerald-300 border-emerald-500/40'
-                      : 'bg-[#090C15] text-slate-400 border-white/[0.07]'
-                  }`}
-                >
-                  Short Series (&le;13 Eps)
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-slate-400 px-1">
-                <span>
-                  {searchQuery.trim()
-                    ? `Instant Results (${jikanResults.length} Matches)`
-                    : `Top Curated in Local Database (${OFFLINE_CATALOG_COUNT} Offline)`}
-                </span>
-                <span>{searchingMal ? 'Checking...' : '0ms Local Engine'}</span>
-              </div>
-
-              {jikanResults.map((item) => {
-                const canonicalTitle = item.title_english || item.title;
-                const existing = !rematchingAnime
-                  ? checkDuplicate(canonicalTitle, item.mal_id)
-                  : undefined;
-                const rawThumb =
-                  item.images?.jpg?.large_image_url || item.images?.jpg?.image_url || '';
-                const thumbUrl = rawThumb
-                  ? `/api/cached-poster?id=${item.mal_id}&url=${encodeURIComponent(rawThumb)}`
-                  : '';
-
-                return (
-                  <div
-                    key={item.mal_id}
-                    className="p-3 rounded-2xl bg-[#090C15] border border-white/[0.08] hover:border-white/20 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img
-                        src={thumbUrl}
-                        alt={item.title}
-                        loading="lazy"
-                        className="w-12 h-16 object-cover rounded-lg ring-1 ring-white/10 shrink-0 bg-slate-900"
-                      />
-                      <div className="min-w-0">
-                        <h4 className="font-black text-sm text-white truncate">
-                          {canonicalTitle}
-                        </h4>
-                        <p className="text-xs font-bold text-slate-400 truncate tabular-nums">
-                          {item.studios?.[0]?.name || item.title} • {item.episodes || '?'} Eps •
-                          Score {item.score || '-'}
-                        </p>
-                        {item.genres && item.genres.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {item.genres.slice(0, 3).map((g) => (
-                              <span
-                                key={g.name}
-                                className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-[#111624] text-slate-300 border border-white/[0.06]"
-                              >
-                                {g.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {existing && (
-                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded bg-amber-950 text-[#FDBA74] border border-amber-700/50 text-[10px] font-black">
-                            <AlertTriangle className="w-3 h-3" />
-                            Already in {existing.status}
-                          </span>
-                        )}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={item.images?.jpg?.image_url}
+                          alt={item.title}
+                          className="w-11 h-16 object-cover rounded-lg bg-[#EAE6DF] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <h4 className="font-black text-sm text-[#1C1917] truncate">
+                            {canonicalTitle}
+                          </h4>
+                          <p className="text-xs font-bold text-[#78716C] truncate tabular-nums">
+                            {item.studios?.[0]?.name || 'Anime'} • {item.episodes || '?'} Eps •{' '}
+                            {item.score || '-'}
+                          </p>
+                          {existing && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-extrabold text-[#E07A5F]">
+                              <AlertTriangle className="w-3 h-3" />
+                              Already in library
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {!rematchingAnime && !existing && newStatus !== 'plan' && (
-                        <TactileButton
-                          variant="slate"
-                          size="sm"
-                          onClick={() => handleAddFromJikan(item, 'plan')}
-                        >
-                          <Bookmark className="w-3.5 h-3.5" />
-                          <span>Watchlist</span>
-                        </TactileButton>
-                      )}
                       <TactileButton
-                        variant={existing ? 'slate' : 'emerald'}
+                        variant={existing ? 'white' : 'amber'}
                         size="sm"
                         onClick={() => handleAddFromJikan(item)}
                       >
                         {rematchingAnime
-                          ? 'Use This Poster'
+                          ? 'Use Poster'
                           : existing
                             ? 'Open'
-                            : newStatus === 'plan'
-                              ? '+ Watchlist'
-                              : newStatus === 'completed'
-                                ? '+ Completed'
-                                : '+ Watching'}
+                            : `+ Add`}
                       </TactileButton>
                     </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          MODAL 2: UNIFIED DELETE / MOVE TO WATCHED MODAL (ZERO window.confirm!)
+         ===================================================================== */}
+      {deletingTarget && (
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#1C1917]/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-white w-full max-w-md rounded-3xl border border-[#E5E0D8] shadow-[0_25px_60px_-15px_rgba(28,25,23,0.3)] p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-[#EFECE6] pb-3">
+              <div className="flex items-center gap-3">
+                {deletingTarget.posterUrl && (
+                  <img
+                    src={deletingTarget.posterUrl}
+                    alt={deletingTarget.title}
+                    className="w-10 h-14 rounded-lg object-cover bg-[#EAE6DF]"
+                  />
+                )}
+                <div>
+                  <h3 className="text-base font-black text-[#1C1917]">
+                    {deletingTarget.title}
+                  </h3>
+                  <p className="text-xs font-bold text-[#78716C]">
+                    Choose how you want to clean or remove this series
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeletingTarget(null)}
+                className="p-1.5 rounded-xl bg-[#F5F3EE] text-[#1C1917] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* PRIMARY CHOICE: Move to Watched & Keep Poster Forever */}
+              <button
+                onClick={() => handleArchiveAndCleanVideos(deletingTarget, 'all')}
+                className="w-full p-4 rounded-2xl bg-[#FAF8F5] hover:bg-[#2A9D8F]/10 border-2 border-[#2A9D8F] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+              >
+                <div>
+                  <span className="inline-block text-[10px] font-black uppercase tracking-wider text-[#2A9D8F] mb-0.5">
+                    Recommended • Poster &amp; History Kept
+                  </span>
+                  <h4 className="text-sm font-black text-[#1C1917]">
+                    Move to Watched {deletingTarget.hasLocalFiles ? '& Delete .MKV Files' : ''}
+                  </h4>
+                  <p className="text-xs font-bold text-[#78716C] mt-0.5">
+                    {deletingTarget.hasLocalFiles
+                      ? `Frees ${formatDiskSize(deletingTarget.totalDiskMB)} of disk space while keeping the poster & card in your Watched tab.`
+                      : 'Moves this anime to your Watched (Completed) tab so its poster never disappears.'}
+                  </p>
+                </div>
+                <Archive className="w-5 h-5 text-[#2A9D8F] shrink-0" />
+              </button>
+
+              {/* OPTIONAL CHOICE: Clean Watched Episodes Only */}
+              {deletingTarget.hasLocalFiles && deletingTarget.watchedEpisodes.length > 0 && (
+                <button
+                  onClick={() => handleArchiveAndCleanVideos(deletingTarget, 'watched_only')}
+                  className="w-full p-4 rounded-2xl bg-[#FAF8F5] hover:bg-[#F5F3EE] border border-[#E5E0D8] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+                >
+                  <div>
+                    <h4 className="text-sm font-black text-[#1C1917]">
+                      Clean Watched Episodes Only ({deletingTarget.watchedEpisodes.length} Eps)
+                    </h4>
+                    <p className="text-xs font-bold text-[#78716C] mt-0.5">
+                      Deletes .mkv files for episodes you already finished; keeps unwatched episodes.
+                    </p>
                   </div>
-                );
-              })}
+                  <HardDrive className="w-5 h-5 text-[#E07A5F] shrink-0" />
+                </button>
+              )}
+
+              {/* DESTRUCTIVE CHOICE: Remove Card Completely */}
+              <button
+                onClick={() => handleConfirmPermanentDelete(deletingTarget)}
+                className="w-full p-3.5 rounded-2xl bg-white hover:bg-[#D9534F]/10 border border-[#E5E0D8] hover:border-[#D9534F] text-left flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-[0.98]"
+              >
+                <div>
+                  <h4 className="text-xs font-black text-[#D9534F]">
+                    Remove Card Permanently from Anideck
+                  </h4>
+                  <p className="text-[11px] font-bold text-[#78716C]">
+                    Completely erases this entry from your library memory.
+                  </p>
+                </div>
+                <Trash2 className="w-4 h-4 text-[#D9534F] shrink-0" />
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* =====================================================================
-          MODAL 2: MARK COMPLETED + OPTIONAL STEAM-STYLE .MKV STORAGE CLEANER
+          MODAL 3: CUSTOM SINGLE EPISODE DELETE MODAL (ZERO window.confirm!)
+         ===================================================================== */}
+      {deletingEpisode && (
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#1C1917]/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-white w-full max-w-sm rounded-3xl border border-[#E5E0D8] shadow-2xl p-6 space-y-4">
+            <h3 className="text-base font-black text-[#1C1917]">
+              Clean Episode {deletingEpisode.file.episodeLabel} Video?
+            </h3>
+            <p className="text-xs font-bold text-[#78716C]">
+              Deletes <code>{deletingEpisode.file.fileName}</code> ({deletingEpisode.file.sizeMB}{' '}
+              MB) from your SSD and marks Episode {deletingEpisode.file.episodeLabel} as watched.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <TactileButton
+                variant="white"
+                size="sm"
+                onClick={() => setDeletingEpisode(null)}
+              >
+                Cancel
+              </TactileButton>
+              <TactileButton
+                variant="rose"
+                size="sm"
+                onClick={() =>
+                  handleArchiveAndCleanVideos(
+                    deletingEpisode.anime,
+                    'single',
+                    deletingEpisode.file
+                  )
+                }
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete .MKV ({deletingEpisode.file.sizeMB} MB)</span>
+              </TactileButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          MODAL 4: MARK COMPLETED MODAL (CUSTOM STEPPER & CUSTOM TOGGLE SWITCH)
          ===================================================================== */}
       {completingAnime && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111624] w-full max-w-md rounded-3xl border border-white/15 shadow-2xl p-6 space-y-4">
+        <div className="animate-backdrop-fade fixed inset-0 z-50 bg-[#1C1917]/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="animate-modal-pop bg-white w-full max-w-md rounded-3xl border border-[#E5E0D8] shadow-2xl p-6 space-y-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-white flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-[#FDBA74]" />
-                <span>Mark Series Completed</span>
+              <h3 className="text-lg font-black text-[#1C1917] flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-[#E07A5F]" />
+                <span>Move to Watched</span>
               </h3>
               <button
                 onClick={() => setCompletingAnime(null)}
-                className="p-1.5 rounded-xl border border-white/10 bg-[#090C15] text-slate-300 cursor-pointer"
+                className="p-1.5 rounded-xl bg-[#F5F3EE] text-[#1C1917] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs font-bold text-slate-300">
-              Logging <strong>{completingAnime.title}</strong> into your permanent{' '}
-              <strong>Completed / Watched</strong> archive.
-            </p>
-
-            <div>
-              <label className="block text-xs font-black uppercase text-slate-400 mb-1">
-                Personal Score (1 - 10)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={completeRating}
-                onChange={(e) =>
-                  setCompleteRating(
-                    Math.max(1, Math.min(10, parseInt(e.target.value || '10', 10)))
-                  )
-                }
-                className="w-full px-3.5 py-2 rounded-xl bg-[#090C15] border border-white/10 font-black text-lg text-[#FDBA74]"
-              />
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8]">
+              <span className="text-xs font-black uppercase text-[#78716C]">
+                Personal Score
+              </span>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCompleteRating((r) => Math.max(1, r - 1))}
+                  className="p-1.5 rounded-xl bg-white border border-[#DFD9CE] cursor-pointer"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-xl font-black text-[#E07A5F] tabular-nums w-12 text-center">
+                  {completeRating}/10
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCompleteRating((r) => Math.min(10, r + 1))}
+                  className="p-1.5 rounded-xl bg-white border border-[#DFD9CE] cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             <div>
-              <label className="block text-xs font-black uppercase text-slate-400 mb-1">
+              <label className="block text-xs font-black uppercase text-[#78716C] mb-1.5">
                 Review / Notes
               </label>
               <textarea
                 rows={3}
                 value={completeReview}
                 onChange={(e) => setCompleteReview(e.target.value)}
-                placeholder="Write your thoughts or favorite moments..."
-                className="w-full px-3.5 py-2 rounded-xl bg-[#090C15] border border-white/10 font-bold text-sm text-white"
+                placeholder="Write your thoughts..."
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#FAF8F5] border border-[#DFD9CE] font-bold text-sm text-[#1C1917] focus:outline-none focus:border-[#E07A5F]"
               />
             </div>
 
+            {/* Custom Animated Toggle Switch (No native <input type="checkbox">!) */}
             {completingAnime.hasLocalFiles && (
-              <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-[#090C15] border border-amber-500/30 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={deleteFilesOnComplete}
-                  onChange={(e) => setDeleteFilesOnComplete(e.target.checked)}
-                  className="mt-1 accent-[#F97316]"
-                />
+              <div
+                onClick={() => setDeleteFilesOnComplete((prev) => !prev)}
+                className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-[#FAF8F5] border border-[#E5E0D8] cursor-pointer select-none"
+              >
                 <div className="text-xs">
-                  <span className="font-black text-white block">
-                    Also delete local .mkv video files ({formatDiskSize(completingAnime.totalDiskMB)})
+                  <span className="font-black text-[#1C1917] block">
+                    Also delete .mkv files ({formatDiskSize(completingAnime.totalDiskMB)})
                   </span>
-                  <span className="font-bold text-slate-400">
-                    Frees up SSD space while keeping the poster, rating &amp; watch record
-                    permanently in Completed.
+                  <span className="font-bold text-[#78716C]">
+                    Poster &amp; history stay permanently in your Watched tab.
                   </span>
                 </div>
-              </label>
+                <div
+                  className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 shrink-0 ${
+                    deleteFilesOnComplete ? 'bg-[#2A9D8F]' : 'bg-[#D6D0C4]'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                      deleteFilesOnComplete ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </div>
+              </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-1">
               <TactileButton
-                variant="slate"
+                variant="white"
                 size="md"
                 onClick={() => setCompletingAnime(null)}
               >
@@ -3196,178 +2678,8 @@ export function App() {
               </TactileButton>
               <TactileButton variant="emerald" size="md" onClick={handleConfirmComplete}>
                 <Check className="w-4 h-4" />
-                <span>Save to Completed</span>
+                <span>Save to Watched</span>
               </TactileButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =====================================================================
-          MODAL 3: STEAM-STYLE STORAGE CLEANER (DELETE .MKV • KEEP POSTER & LOG)
-         ===================================================================== */}
-      {cleaningAnime && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111624] w-full max-w-lg rounded-3xl border border-white/15 shadow-2xl p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2.5">
-                <HardDrive className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h3 className="text-lg font-black text-white">
-                    Storage Manager &amp; Watched Archive
-                  </h3>
-                  <p className="text-xs font-bold text-slate-400">
-                    {cleaningAnime.title} • {cleaningAnime.localFiles?.length || 0} MKV Files (
-                    {formatDiskSize(cleaningAnime.totalDiskMB)})
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setCleaningAnime(null)}
-                className="p-1.5 rounded-xl bg-[#090C15] border border-white/10 text-slate-300 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-200 leading-relaxed">
-              Your local poster (<code>anime/.posters/</code>), personal rating, and watch history
-              are <strong>100% protected</strong> and will remain visible in your{' '}
-              <strong>Completed / Watched</strong> tab even after video files are deleted.
-            </div>
-
-            <div className="space-y-3">
-              {/* Option A: Archive Entire Series to Completed & Delete All .mkv */}
-              <div className="p-4 rounded-2xl bg-[#090C15] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <h4 className="text-sm font-black text-white">
-                    Archive Series &amp; Delete All .MKV Videos
-                  </h4>
-                  <p className="text-xs font-bold text-slate-400 mt-0.5">
-                    Frees <strong>{formatDiskSize(cleaningAnime.totalDiskMB)}</strong> and moves{' '}
-                    {cleaningAnime.title} to <strong>Completed / Watched</strong> with poster intact.
-                  </p>
-                </div>
-                <TactileButton
-                  variant="amber"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => handleDeleteVideos(cleaningAnime, 'all')}
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  <span>Archive &amp; Free {formatDiskSize(cleaningAnime.totalDiskMB)}</span>
-                </TactileButton>
-              </div>
-
-              {/* Option B: Clean Only Watched Episodes */}
-              {cleaningAnime.watchedEpisodes.length > 0 && (
-                <div className="p-4 rounded-2xl bg-[#090C15] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <h4 className="text-sm font-black text-white">
-                      Clean Watched Episodes Only ({cleaningAnime.watchedEpisodes.length} Eps)
-                    </h4>
-                    <p className="text-xs font-bold text-slate-400 mt-0.5">
-                      Deletes only the .mkv files for episodes you have already finished watching;
-                      keeps remaining unwatched episodes untouched.
-                    </p>
-                  </div>
-                  <TactileButton
-                    variant="slate"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => handleDeleteVideos(cleaningAnime, 'watched_only')}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Clean Watched Only</span>
-                  </TactileButton>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =====================================================================
-          MODAL 4: "SURPRISE ME / RANDOM PICK" SPOTLIGHT MODAL
-         ===================================================================== */}
-      {randomPick && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111624] w-full max-w-lg rounded-3xl border border-white/15 shadow-2xl p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2">
-                <Shuffle className="w-5 h-5 text-[#FDBA74]" />
-                <h3 className="text-lg font-black text-white">
-                  Random Curated Pick
-                </h3>
-              </div>
-              <button
-                onClick={() => setRandomPick(null)}
-                className="p-1.5 rounded-xl bg-[#090C15] border border-white/10 text-slate-300 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-5 bg-[#090C15] p-4 rounded-2xl border border-white/[0.08]">
-              <img
-                src={`/api/cached-poster?id=${randomPick.mal_id}&url=${encodeURIComponent(
-                  randomPick.images?.jpg?.large_image_url ||
-                    randomPick.images?.jpg?.image_url ||
-                    ''
-                )}`}
-                alt={randomPick.title}
-                className="w-28 aspect-[2/3] object-cover rounded-xl ring-1 ring-white/15 shrink-0"
-              />
-              <div className="space-y-2 text-center sm:text-left">
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5">
-                  <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 text-[10px] font-black">
-                    {randomPick.matchPercent}% Match
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-[#FDBA74] text-[#090C15] text-[10px] font-black">
-                    Score {randomPick.score}
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-white/10 text-slate-200 text-[10px] font-bold">
-                    {randomPick.episodes || '?'} Eps
-                  </span>
-                </div>
-                <h4 className="text-xl font-black text-white">
-                  {randomPick.title_english || randomPick.title}
-                </h4>
-                <p className="text-xs font-bold text-slate-400">
-                  {randomPick.studios?.[0]?.name || 'Anime Studio'}{' '}
-                  {randomPick.year ? `• ${randomPick.year}` : ''}
-                </p>
-                <p className="text-xs font-extrabold text-[#FDBA74]">{randomPick.reason}</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <TactileButton
-                variant="white"
-                size="sm"
-                onClick={() => setRandomPick(getRandomOfflinePick(animes, selectedGenre))}
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Spin Again</span>
-              </TactileButton>
-              <div className="flex items-center gap-2">
-                <TactileButton
-                  variant="slate"
-                  size="sm"
-                  onClick={() => handleAddFromJikan(randomPick, 'plan')}
-                >
-                  <Bookmark className="w-3.5 h-3.5" />
-                  <span>+ Watchlist</span>
-                </TactileButton>
-                <TactileButton
-                  variant="amber"
-                  size="sm"
-                  onClick={() => handleAddFromJikan(randomPick, 'watching')}
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Start Watching</span>
-                </TactileButton>
-              </div>
             </div>
           </div>
         </div>
