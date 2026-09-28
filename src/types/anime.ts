@@ -8,6 +8,14 @@ export interface EpisodeFile {
   sizeMB: number;
 }
 
+export interface SceneBookmark {
+  id: string;
+  episodeLabel: string;
+  seconds: number;
+  label: string;
+  createdAt: string;
+}
+
 export interface AnimeEntry {
   id: string;
   title: string;
@@ -25,13 +33,17 @@ export interface AnimeEntry {
   personalRating?: number;
   studio?: string;
   genres?: string[];
+  year?: number;
   startedAt?: string;
   completedAt?: string;
+  archivedAt?: string;
   notes?: string;
   watchedEpisodes: string[];
   episodeProgress: Record<string, { seconds: number; duration: number }>;
+  bookmarks?: SceneBookmark[];
   hasLocalFiles?: boolean;
   localFiles?: EpisodeFile[];
+  totalDiskMB?: number;
 }
 
 export interface LiveMpvState {
@@ -50,6 +62,7 @@ export interface JikanAnimeItem {
   title_synonyms?: string[];
   episodes?: number;
   score?: number;
+  year?: number;
   images?: {
     jpg?: {
       large_image_url?: string;
@@ -59,3 +72,4 @@ export interface JikanAnimeItem {
   studios?: { name: string }[];
   genres?: { name: string }[];
 }
+
