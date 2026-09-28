@@ -4,28 +4,142 @@
 
 @layer base {
   body {
-    background-color: #0B0F19;
-    color: #F8FAFC;
+    background-color: #F5F3EE;
+    color: #1C1917;
     font-family: 'Nunito', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Ban native browser number input spin arrows */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
   }
 }
 
-/* Professional dark cinema scrollbar */
+/* ============================================================================
+   EMIL KOWALSKI SPRING PHYSICS & STAGGERED CHOREOGRAPHY (COMPOSITOR-ONLY 60FPS)
+   ============================================================================ */
+
+@keyframes anideckPageEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.975);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes anideckCardWave {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes anideckModalPop {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.89);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes anideckBackdropFade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes anideckBarFill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.animate-page-enter {
+  animation: anideckPageEnter 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-card-wave {
+  animation: anideckCardWave 540ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-modal-pop {
+  animation: anideckModalPop 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-backdrop-fade {
+  animation: anideckBackdropFade 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-bar-fill {
+  transform-origin: left center;
+  animation: anideckBarFill 780ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Noticeable 3D Spring Poster Lift on Hover */
+.poster-card-spring {
+  transition:
+    transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 250ms ease;
+}
+
+.poster-card-spring:hover {
+  transform: translateY(-9px) scale(1.02);
+}
+
+.poster-card-spring:active {
+  transform: translateY(-2px) scale(0.99);
+}
+
+.poster-img-zoom {
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.group:hover .poster-img-zoom {
+  transform: scale(1.07);
+}
+
+/* Warm Studio Minimalist Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0F19;
+  background: #F5F3EE;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1E293B;
+  background: #D6D0C4;
   border-radius: 9999px;
-  border: 2px solid #0B0F19;
+  border: 2px solid #F5F3EE;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #B8B0A2;
 }

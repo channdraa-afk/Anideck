@@ -21,19 +21,20 @@ export const TactileButton: React.FC<TactileButtonProps> = ({
     }
   };
 
+  // Warm Studio Editorial Palette (Soft Terracotta, Calm Sage, Warm Espresso, Alabaster White)
   const variants = {
     amber:
-      'bg-[#F97316] hover:bg-[#FB923C] text-[#090C15] border border-[#FDBA74]/50 shadow-[0_3px_0_0_#9A3412] active:shadow-none active:translate-y-[2px]',
+      'bg-[#E07A5F] hover:bg-[#D4694D] text-[#FFFDF9] border border-[#C85D41] shadow-[0_3px_0_0_#A6472E] active:shadow-none',
     emerald:
-      'bg-emerald-400 hover:bg-emerald-300 text-[#090C15] border border-emerald-200/50 shadow-[0_3px_0_0_#065F46] active:shadow-none active:translate-y-[2px]',
+      'bg-[#2A9D8F] hover:bg-[#23877B] text-[#FFFDF9] border border-[#1E7268] shadow-[0_3px_0_0_#16574F] active:shadow-none',
     sky:
-      'bg-[#FFFDF8] hover:bg-amber-50 text-[#090C15] border border-white/60 shadow-[0_3px_0_0_#64748B] active:shadow-none active:translate-y-[2px]',
+      'bg-[#F4A261] hover:bg-[#E8924F] text-[#1C1917] border border-[#D6803E] shadow-[0_3px_0_0_#B36529] active:shadow-none',
     rose:
-      'bg-rose-500/90 hover:bg-rose-500 text-white border border-rose-400/40 shadow-[0_3px_0_0_#881337] active:shadow-none active:translate-y-[2px]',
+      'bg-[#D9534F] hover:bg-[#C9433F] text-white border border-[#B53632] shadow-[0_3px_0_0_#8F2724] active:shadow-none',
     slate:
-      'bg-[#151C2C] hover:bg-[#1E273D] text-slate-100 border border-white/10 shadow-[0_3px_0_0_#070A10] active:shadow-none active:translate-y-[2px]',
+      'bg-[#1C1917] hover:bg-[#292524] text-[#FAF8F5] border border-[#1C1917] shadow-[0_3px_0_0_#0C0A09] active:shadow-none',
     white:
-      'bg-[#111623] hover:bg-[#192134] text-slate-300 hover:text-white border border-white/[0.08] shadow-[0_2px_0_0_#06080E] active:shadow-none active:translate-y-[2px]',
+      'bg-[#FFFFFF] hover:bg-[#FAF8F5] text-[#1C1917] border border-[#DFD9CE] shadow-[0_3px_0_0_#CFC8BA] active:shadow-none',
   };
 
   const sizes = {
@@ -47,7 +48,10 @@ export const TactileButton: React.FC<TactileButtonProps> = ({
       {...props}
       disabled={disabled}
       onClick={handleClick}
-      className={`relative inline-flex items-center justify-center gap-2 cursor-pointer transition-transform duration-75 select-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none ${variants[variant]} ${sizes[size]} ${className}`}
+      style={{
+        transition: 'transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 150ms ease',
+      }}
+      className={`relative inline-flex items-center justify-center gap-2 cursor-pointer select-none hover:-translate-y-[1.5px] active:translate-y-[2px] active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {children}
     </button>
