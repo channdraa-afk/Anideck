@@ -139,12 +139,16 @@ function saveState(state: { animes: AnimeEntry[] }) {
 }
 
 // Download remote image URL directly to local disk (anime/.posters/<id>.jpg)
-async function downloadPosterToLocal(animeId: string, remoteUrl: string): Promise<string | null> {
+async function downloadPosterToLocal(
+  animeId: string,
+  remoteUrl: string,
+  forceOverwrite = false
+): Promise<string | null> {
   try {
     ensureDirectories();
     const safeFile = `${animeId.replace(/[^a-z0-9-_]/gi, '_')}.jpg`;
     const localPath = path.join(POSTERS_DIR, safeFile);
-    if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
+    if (!forceOverwrite && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
       return `/api/poster/${safeFile}`;
     }
     const res = await fetch(remoteUrl);
@@ -152,23 +156,27 @@ async function downloadPosterToLocal(animeId: string, remoteUrl: string): Promis
     const buffer = Buffer.from(await res.arrayBuffer());
     if (buffer.length < 500) return null;
     await fs.promises.writeFile(localPath, buffer);
-    return `/api/poster/${safeFile}`;
+    return forceOverwrite ? `/api/poster/${safeFile}?v=${Date.now()}` : `/api/poster/${safeFile}`;
   } catch {
     return null;
   }
 }
 
 // Automatically fetch MAL metadata & cache poster locally on disk so it works 100% offline forever
-async function ensureLocalPosterAndMetadata(anime: AnimeEntry, state: { animes: AnimeEntry[] }) {
+async function ensureLocalPosterAndMetadata(
+  anime: AnimeEntry,
+  state: { animes: AnimeEntry[] },
+  forceOverwrite = false
+) {
   if (syncingIds.has(anime.id)) return;
   ensureDirectories();
   const safeFile = `${anime.id.replace(/[^a-z0-9-_]/gi, '_')}.jpg`;
   const localPath = path.join(POSTERS_DIR, safeFile);
 
-  // If local poster file already exists on disk, point posterUrl to local endpoint
-  if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
+  // If local poster file already exists on disk and not forcing overwrite, point posterUrl to local endpoint
+  if (!forceOverwrite && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
     const localUrl = `/api/poster/${safeFile}`;
-    if (anime.posterUrl !== localUrl) {
+    if (!anime.posterUrl || !anime.posterUrl.startsWith('/api/poster/')) {
       anime.posterUrl = localUrl;
       saveState(state);
     }
@@ -179,7 +187,7 @@ async function ensureLocalPosterAndMetadata(anime: AnimeEntry, state: { animes: 
   try {
     // Case 1: Anime already has remote http(s) posterUrl -> download it to local disk
     if (anime.posterUrl && /^https?:\/\//i.test(anime.posterUrl)) {
-      const localUrl = await downloadPosterToLocal(anime.id, anime.posterUrl);
+      const localUrl = await downloadPosterToLocal(anime.id, anime.posterUrl, forceOverwrite);
       if (localUrl) {
         anime.posterUrl = localUrl;
         saveState(state);
@@ -187,7 +195,7 @@ async function ensureLocalPosterAndMetadata(anime: AnimeEntry, state: { animes: 
       }
     }
 
-    // Case 2: Newly discovered folder without metadata/poster -> auto-query Jikan API
+    // Case 2: Newly discovered folder or manual entry without metadata/poster -> auto-query Jikan API
     const query = anime.folderName || anime.title;
     const res = await fetch(
       `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1&sfw=true`
@@ -213,7 +221,7 @@ async function ensureLocalPosterAndMetadata(anime: AnimeEntry, state: { animes: 
 
     const remoteImg = item.images?.jpg?.large_image_url || item.images?.jpg?.image_url;
     if (remoteImg) {
-      const localUrl = await downloadPosterToLocal(anime.id, remoteImg);
+      const localUrl = await downloadPosterToLocal(anime.id, remoteImg, forceOverwrite);
       anime.posterUrl = localUrl || remoteImg;
     }
     saveState(state);
@@ -387,6 +395,36 @@ function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[]
   return results;
 }
 
+function normalizeForMatch(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isFolderMatchingAnime(folderName: string, anime: AnimeEntry): boolean {
+  const fLower = folderName.toLowerCase().trim();
+  if (
+    anime.folderName?.toLowerCase() === fLower ||
+    anime.title.toLowerCase() === fLower ||
+    anime.aliases.some((al) => al.toLowerCase() === fLower)
+  ) {
+    return true;
+  }
+
+  // Fuzzy match for anime entries that don't have a linked folder yet
+  if (!anime.folderName) {
+    const fNorm = normalizeForMatch(folderName);
+    if (fNorm.length >= 3) {
+      const candidates = [anime.title, ...anime.aliases].map(normalizeForMatch).filter(Boolean);
+      if (candidates.some((c) => c.includes(fNorm) || fNorm.includes(c))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function autoDiscoverFolders(state: { animes: AnimeEntry[] }, forceRescan = false): boolean {
   ensureDirectories();
   const dirs = fs
@@ -395,14 +433,9 @@ function autoDiscoverFolders(state: { animes: AnimeEntry[] }, forceRescan = fals
 
   let changed = false;
   for (const d of dirs) {
-    const existing = state.animes.find(
-      (a) =>
-        a.folderName?.toLowerCase() === d.name.toLowerCase() ||
-        a.title.toLowerCase() === d.name.toLowerCase() ||
-        a.aliases.some((al) => al.toLowerCase() === d.name.toLowerCase())
-    );
+    const existing = state.animes.find((a) => isFolderMatchingAnime(d.name, a));
+    const files = scanAnimeFolder(d.name, forceRescan);
     if (!existing) {
-      const files = scanAnimeFolder(d.name, forceRescan);
       const newEntry: AnimeEntry = {
         id: d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
         title: d.name,
@@ -421,9 +454,16 @@ function autoDiscoverFolders(state: { animes: AnimeEntry[] }, forceRescan = fals
       };
       state.animes.unshift(newEntry);
       changed = true;
-    } else if (!existing.folderName) {
-      existing.folderName = d.name;
-      changed = true;
+    } else {
+      if (!existing.folderName) {
+        existing.folderName = d.name;
+        changed = true;
+      }
+      // If user previously added this anime as "Plan to Watch" (undownloaded) and now downloaded .mkv files into its folder, auto-promote to "Watching"!
+      if (existing.status === 'plan' && files.length > 0) {
+        existing.status = 'watching';
+        changed = true;
+      }
     }
   }
   return changed;
@@ -641,7 +681,7 @@ function anideckLocalApi(): Plugin {
         // POST /api/update-anime
         if (req.url === '/api/update-anime' && req.method === 'POST') {
           const payload = await readBody();
-          const { localFiles, hasLocalFiles, ...cleanPayload } = payload;
+          const { localFiles, hasLocalFiles, forceOverwritePoster, ...cleanPayload } = payload;
           const state = loadState();
           const idx = state.animes.findIndex((a) => a.id === cleanPayload.id);
           let targetEntry: AnimeEntry;
@@ -652,13 +692,48 @@ function anideckLocalApi(): Plugin {
             state.animes.unshift(cleanPayload);
             targetEntry = cleanPayload;
           }
-          // Immediately cache poster to disk if remote URL provided
+          // Immediately cache poster to disk if remote URL provided (or overwrite when user changes poster)
           if (targetEntry.posterUrl && /^https?:\/\//i.test(targetEntry.posterUrl)) {
-            const localUrl = await downloadPosterToLocal(targetEntry.id, targetEntry.posterUrl);
+            const localUrl = await downloadPosterToLocal(
+              targetEntry.id,
+              targetEntry.posterUrl,
+              Boolean(forceOverwritePoster)
+            );
             if (localUrl) targetEntry.posterUrl = localUrl;
+          } else if (!targetEntry.posterUrl) {
+            // If user clicked "Simpan Manual" without selecting a poster, auto-fetch closest MAL poster
+            await ensureLocalPosterAndMetadata(targetEntry, state, true);
           }
           saveState(state);
-          res.end(JSON.stringify({ ok: true, posterUrl: targetEntry.posterUrl }));
+          res.end(
+            JSON.stringify({
+              ok: true,
+              posterUrl: targetEntry.posterUrl,
+              anime: targetEntry,
+            })
+          );
+          return;
+        }
+
+        // POST /api/prepare-folder -> Create clean local folder in anime/ for an undownloaded anime & open Explorer
+        if (req.url === '/api/prepare-folder' && req.method === 'POST') {
+          const { id, title } = await readBody();
+          const safeFolder = String(title || id || 'Anime')
+            .replace(/[<>:"/\\|?*]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const targetDir = path.join(ANIME_DIR, safeFolder);
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          const state = loadState();
+          const anime = state.animes.find((a) => a.id === id);
+          if (anime) {
+            anime.folderName = safeFolder;
+            saveState(state);
+          }
+          spawn('explorer.exe', [targetDir], { detached: true, stdio: 'ignore' }).unref();
+          res.end(JSON.stringify({ ok: true, folderName: safeFolder, opened: targetDir }));
           return;
         }
 
