@@ -206,50 +206,6 @@ async function ensureLocalPosterAndMetadata(
 
     // Case 2: Newly discovered folder or manual entry without metadata/poster
     const query = (anime.folderName || anime.title || '').trim();
-
-    // First check local 950-anime offlineCatalog.json (0ms, works 100% offline!)
-    try {
-      const offlineCatalogPath = path.resolve(__dirname, 'src', 'data', 'offlineCatalog.json');
-      if (fs.existsSync(offlineCatalogPath)) {
-        const catalogList = JSON.parse(fs.readFileSync(offlineCatalogPath, 'utf-8'));
-        const qLow = query.toLowerCase();
-        const foundOffline = catalogList.find(
-          (item: any) =>
-            item.title_english?.toLowerCase() === qLow ||
-            item.title?.toLowerCase() === qLow ||
-            item.title_synonyms?.some((s: string) => s.toLowerCase() === qLow) ||
-            (qLow.length >= 4 &&
-              (item.title_english?.toLowerCase().includes(qLow) ||
-                item.title?.toLowerCase().includes(qLow)))
-        );
-        if (foundOffline) {
-          const canonical = foundOffline.title_english || foundOffline.title;
-          if (anime.title === anime.folderName && canonical) {
-            anime.title = canonical;
-          }
-          anime.malId = anime.malId || foundOffline.mal_id;
-          anime.score = anime.score || foundOffline.score;
-          anime.studio = anime.studio || foundOffline.studio;
-          anime.genres = anime.genres?.length ? anime.genres : foundOffline.genres;
-          if (foundOffline.poster) {
-            const localUrl = await downloadPosterToLocal(
-              anime.id,
-              foundOffline.poster,
-              forceOverwrite
-            );
-            anime.posterUrl = localUrl || anime.posterUrl;
-          }
-          saveState(state);
-          if (anime.posterUrl?.startsWith('/api/poster/')) {
-            return;
-          }
-        }
-      }
-    } catch {
-      // Ignore offline catalog read error
-    }
-
-    // Online fallback via Jikan API
     const res = await fetch(
       `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1&sfw=true`
     );
