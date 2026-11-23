@@ -6,6 +6,7 @@ export interface EpisodeFile {
   fileName: string;
   fullPath: string;
   sizeMB: number;
+  isBonus?: boolean;
 }
 
 export interface SceneBookmark {

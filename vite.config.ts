@@ -283,18 +283,48 @@ ${markerEnd}`;
 function parseEpisodeFromFilename(fileName: string): {
   num: number;
   label: string;
+  isBonus?: boolean;
 } {
   const withoutExt = fileName.replace(/\.(mkv|mp4|avi)$/i, '');
+
+  // 1. Detect creditless/extras/bonus (NCOP, NCED, OP, ED, PV, CM, TRAILER, MENU, SP, SPECIAL)
+  const bonusMatch = withoutExt.match(/\b(NCOP|NCED|PV|CM|TRAILER|MENU|SPECIAL)\b.*?(?:-\s*(\d+(?:\.\d+)?)|(\d+))?/i);
+  if (bonusMatch) {
+    const type = bonusMatch[1].toUpperCase();
+    const rawNum = bonusMatch[2] || bonusMatch[3] || '1';
+    const numVal = parseFloat(rawNum) || 1;
+    return {
+      num: 900 + numVal,
+      label: `${type} ${String(Math.floor(numVal)).padStart(2, '0')}`,
+      isBonus: true,
+    };
+  }
+
+  // 2. Regular episodes with "- <number>" at end or followed by OVA/END/Recap
   const dashMatch = withoutExt.match(/-\s*(\d+(?:\.\d+)?)\s*(OVA|END|SP|Recap)?$/i);
   if (dashMatch) {
     const num = parseFloat(dashMatch[1]);
     const suffix = dashMatch[2] ? ` ${dashMatch[2].toUpperCase()}` : '';
-    return { num, label: `${dashMatch[1]}${suffix}` };
+    const formattedLabel = !suffix && Number.isInteger(num) && num < 100
+      ? String(num).padStart(2, '0')
+      : `${dashMatch[1]}${suffix}`;
+    return { num, label: formattedLabel };
   }
+
+  // 3. Match patterns like "E01" or "Ep 01" or standalone brackets "[01]"
+  const epPrefixMatch = withoutExt.match(/(?:ep|episode|e)\s*(\d+(?:\.\d+)?)/i);
+  if (epPrefixMatch) {
+    const num = parseFloat(epPrefixMatch[1]);
+    const label = Number.isInteger(num) && num < 100 ? String(num).padStart(2, '0') : epPrefixMatch[1];
+    return { num, label };
+  }
+
   const allNumbers = [...withoutExt.matchAll(/(\d+(?:\.\d+)?)/g)];
   if (allNumbers.length > 0) {
     const last = allNumbers[allNumbers.length - 1][1];
-    return { num: parseFloat(last), label: last };
+    const num = parseFloat(last);
+    const label = Number.isInteger(num) && num < 100 ? String(num).padStart(2, '0') : last;
+    return { num, label };
   }
   return { num: 0, label: withoutExt };
 }
@@ -317,10 +347,13 @@ function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[]
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
-        walk(fullPath, entry.name);
+        // Only recognize directory as a legit part if name matches "Part 1", "Season 2", etc.
+        const isLegitPart = /^(part|season|cour|s|vol|volume|bd-?box)\s*\d+/i.test(entry.name.trim());
+        const nextPartLabel = isLegitPart ? entry.name.trim() : partLabel;
+        walk(fullPath, nextPartLabel);
       } else if (/\.(mkv|mp4|avi)$/i.test(entry.name)) {
         const stat = fs.statSync(fullPath);
-        const { num, label } = parseEpisodeFromFilename(entry.name);
+        const { num, label, isBonus } = parseEpisodeFromFilename(entry.name);
         results.push({
           id: `${partLabel}-${label}`,
           part: partLabel,
@@ -329,6 +362,7 @@ function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[]
           fileName: entry.name,
           fullPath,
           sizeMB: Math.round(stat.size / (1024 * 1024)),
+          isBonus,
         });
       }
     }
@@ -343,17 +377,20 @@ function scanAnimeFolder(folderName: string, forceRescan = false): EpisodeFile[]
     return a.episodeNum - b.episodeNum;
   });
 
-  // Disambiguate colliding episode labels across multi-part folders (e.g. if Part 2 restarts at 01)
+  // Disambiguate colliding episode labels across legitimate multi-part folders (e.g. if Part 2 restarts at 01)
   const labelCounts = new Map<string, number>();
   for (const ep of results) {
-    labelCounts.set(ep.episodeLabel, (labelCounts.get(ep.episodeLabel) || 0) + 1);
+    if (!ep.isBonus) {
+      labelCounts.set(ep.episodeLabel, (labelCounts.get(ep.episodeLabel) || 0) + 1);
+    }
   }
   const hasCollision = [...labelCounts.values()].some((count) => count > 1);
   if (hasCollision) {
     for (const ep of results) {
-      if (ep.part !== 'Main' && (labelCounts.get(ep.episodeLabel) || 0) > 1) {
-        const shortPart = ep.part.replace(/part\s*/i, 'P').replace(/\s+/g, '');
-        ep.episodeLabel = `${shortPart}-${ep.episodeLabel}`;
+      if (ep.part !== 'Main' && !ep.isBonus && (labelCounts.get(ep.episodeLabel) || 0) > 1) {
+        const partMatch = ep.part.match(/^(part|season|cour|s|vol)\s*(\d+)/i);
+        const cleanPrefix = partMatch ? `P${partMatch[2]}` : 'P';
+        ep.episodeLabel = `${cleanPrefix}-${ep.episodeLabel}`;
       }
     }
   }
@@ -403,16 +440,18 @@ function autoDiscoverFolders(state: { animes: AnimeEntry[] }, forceRescan = fals
     const existing = state.animes.find((a) => isFolderMatchingAnime(d.name, a));
     const files = scanAnimeFolder(d.name, forceRescan);
     if (!existing) {
+      const firstMainFile = files.find((f) => !f.isBonus) || files[0];
+      const mainFilesCount = files.filter((f) => !f.isBonus).length;
       const newEntry: AnimeEntry = {
         id: d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
         title: d.name,
         aliases: [d.name],
         status: 'watching',
-        currentEpisode: 1,
-        currentEpisodeLabel: files[0]?.episodeLabel || '01',
+        currentEpisode: firstMainFile?.episodeNum && firstMainFile.episodeNum < 900 ? firstMainFile.episodeNum : 1,
+        currentEpisodeLabel: firstMainFile?.episodeLabel || '01',
         currentSeconds: 0,
         durationSeconds: 1420,
-        totalEpisodes: files.length || 12,
+        totalEpisodes: mainFilesCount || files.length || 12,
         folderName: d.name,
         startedAt: new Date().toISOString().slice(0, 10),
         notes: 'Terdeteksi otomatis dari folder anime/',

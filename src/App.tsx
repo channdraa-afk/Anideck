@@ -301,14 +301,28 @@ export function App() {
     if (!isCurrentNearlyDone) return null;
 
     if (anime.localFiles && anime.localFiles.length > 0) {
-      const idx = anime.localFiles.findIndex((f) => f.episodeLabel === anime.currentEpisodeLabel);
-      if (idx !== -1 && idx + 1 < anime.localFiles.length) {
-        const nextFile = anime.localFiles[idx + 1];
+      const mainFiles = anime.localFiles.filter((f) => !f.isBonus);
+      const targetList = mainFiles.length > 0 ? mainFiles : anime.localFiles;
+
+      const idx = targetList.findIndex((f) => f.episodeLabel === anime.currentEpisodeLabel);
+      if (idx !== -1 && idx + 1 < targetList.length) {
+        const nextFile = targetList[idx + 1];
         return {
           episodeNum: nextFile.episodeNum,
           episodeLabel: nextFile.episodeLabel,
           file: nextFile,
         };
+      }
+      // If user was on an unindexed file or bonus, find first unwatched main episode
+      if (idx === -1) {
+        const nextUnwatched = targetList.find((f) => !anime.watchedEpisodes.includes(f.episodeLabel)) || targetList[0];
+        if (nextUnwatched) {
+          return {
+            episodeNum: nextUnwatched.episodeNum,
+            episodeLabel: nextUnwatched.episodeLabel,
+            file: nextUnwatched,
+          };
+        }
       }
     }
     return null;
@@ -449,7 +463,9 @@ export function App() {
 
   const handleQuickIncrementEpisode = (anime: AnimeEntry, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const files = anime.localFiles || [];
+    const allFiles = anime.localFiles || [];
+    const mainFiles = allFiles.filter((f) => !f.isBonus);
+    const files = mainFiles.length > 0 ? mainFiles : allFiles;
     const prevEpLabel = anime.currentEpisodeLabel;
     const updatedWatched = anime.watchedEpisodes.includes(prevEpLabel)
       ? anime.watchedEpisodes
@@ -484,7 +500,9 @@ export function App() {
 
   const handleStepEpisode = (delta: number) => {
     if (!selectedAnime) return;
-    const files = selectedAnime.localFiles || [];
+    const allFiles = selectedAnime.localFiles || [];
+    const mainFiles = allFiles.filter((f) => !f.isBonus);
+    const files = mainFiles.length > 0 ? mainFiles : allFiles;
     const prevEpLabel = selectedAnime.currentEpisodeLabel;
     const updatedWatched =
       delta > 0 && !selectedAnime.watchedEpisodes.includes(prevEpLabel)
@@ -2153,18 +2171,28 @@ export function App() {
                               {isWatched ? (
                                 <Check className="w-5 h-5 stroke-[3]" />
                               ) : (
-                                <span className="text-sm">{file.episodeLabel}</span>
+                                <span className={`font-black ${file.isBonus ? 'text-[10px]' : 'text-sm'}`}>
+                                  {file.isBonus ? file.episodeLabel.split(' ')[0] : file.episodeLabel}
+                                </span>
                               )}
                             </button>
 
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-sm font-black text-[#EEEAD7]">
-                                  Episode {file.episodeLabel}
+                                  {file.isBonus ? file.episodeLabel : `Episode ${file.episodeLabel}`}
                                 </span>
                                 {file.part !== 'Main' && (
-                                  <span className="px-1.5 py-0.2 rounded bg-[#242724] border border-[#757D6F]/35 text-[10px] font-extrabold text-[#8FA882]">
+                                  <span
+                                    className="px-1.5 py-0.2 rounded bg-[#242724] border border-[#757D6F]/35 text-[10px] font-extrabold text-[#8FA882] max-w-[80px] truncate"
+                                    title={file.part}
+                                  >
                                     {file.part}
+                                  </span>
+                                )}
+                                {file.isBonus && (
+                                  <span className="px-1.5 py-0.2 rounded bg-[#3A3222] border border-[#F59E0B]/35 text-[10px] font-extrabold text-[#F59E0B]">
+                                    Bonus
                                   </span>
                                 )}
                               </div>

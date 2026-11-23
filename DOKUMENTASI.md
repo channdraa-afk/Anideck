@@ -63,6 +63,9 @@ npm run build
 - [x] **Deep Scan & Codebase Hygiene Audit** (28 September 2026):
   - **Problem**: Masih terdapat berkas *stub* mati (`src/lib/sound.ts`), 50 file poster yatim piatu (`mal_*.jpg` & `1-cowboy-bebop.jpg`) di `anime/.posters/`, endpoint mati `/api/cached-poster`, duplikasi interface TypeScript antara `vite.config.ts` dan `src/types/anime.ts`, 5 *unused icon imports* di `src/App.tsx`, potensi tabrakan `episodeLabel` lintas-part (`Part 1` vs `Part 2`), serta warna seleksi lama di `index.html`.
   - **Solution / State**: Seluruh berkas sampah dan endpoint mati dihapus, tipe data disatukan ke `./src/types/anime` (SSOT), disambiguasi otomatis `P1-01`/`P2-01` ditambahkan bila penomoran `Part 2` di-reset dari `01`, pembersihan otomatis file poster lokal ditambahkan pada `/api/delete-anime`, serta *thumb indicator* ditambahkan pada *Interactive Scrubber*.
+- [x] **Resolusi Bug 3 Episode 01 & Next Episode Macet (NCOP/NCED Filtering & Wrapper Normalization)** (24 November 2026):
+  - **Problem**: Rilis batch fansub (misal Kusonime Frieren) menyertakan video bonus creditless (`NCOP BD - 01.mkv`, `NCED BD - 01.mkv`) yang diakhiri `- 01`, memicu deteksi 3 buah "Episode 01". Akibatnya nama folder rilis yang panjang bocor ke label episode (`[Kusonime]Frieren&PabrikSusu...`), badge UI meluap menimpa nomor episode, dan `getSmartNextEpisode` tersangkut di video bonus sehingga gagal melompat ke Episode 02.
+  - **Solution / State**: `parseEpisodeFromFilename` diperbarui dengan deteksi khusus token bonus (`NCOP`, `NCED`, `PV`, `CM`, dll.) yang diberi label bersih dan di-offset (`901+`), folder pembungkus fansub dinormalisasi sebagai `Main` (hanya `Part 1`, `Season 2` dll. yang diakui sebagai part), badge part diberi pembatas `max-w-[80px] truncate`, dan alur *Next Episode* difilter agar hanya melompat ke episode kanonikal utama.
 
 ---
 
@@ -73,7 +76,8 @@ npm run build
 
 | No | Judul Kanonikal | Alias | Posisi Episode | Menit Terakhir | Progres | Catatan |
 | :---: | :--- | :--- | :---: | :---: | :---: | :--- |
-| **1** | **86 - EIGHTY SIX** | Lapan Enam, Eighty Six, 86 | Eps **12** / 26 | **13:34** / 23:41 | 0 Eps Selesai | BD 1080p MKV 10-bit (Sub Indo ASS) — Part 1 & Part 2 |
+| **1** | **Frieren** | Frieren | Eps **[Kusonime]Frieren&PabrikSusu01-161080p-01** / 18 | **01:30** / 01:31 | 1 Eps Selesai | Terdeteksi otomatis dari folder anime/ |
+| **2** | **86 - EIGHTY SIX** | Lapan Enam, Eighty Six, 86 | Eps **15** / 26 | **05:56** / 23:41 | 4 Eps Selesai | BD 1080p MKV 10-bit (Sub Indo ASS) — Part 1 & Part 2 |
 
 ### 🏆 2. Riwayat Tamat (Completed)
 
